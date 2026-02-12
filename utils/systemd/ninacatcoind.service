@@ -1,0 +1,21 @@
+[Unit]
+Description=ninacatcoin Full Node
+After=network-online.target
+Wants=ninacatcoin-lottery-bot.service
+
+[Service]
+User=ninacatcoin
+Group=ninacatcoin
+WorkingDirectory=~
+StateDirectory=ninacatcoin
+LogsDirectory=ninacatcoin
+
+Type=simple
+ExecStart=/usr/bin/ninacatcoind --config-file /etc/ninacatcoind.conf --non-interactive
+StandardOutput=null
+StandardError=null
+
+Restart=always
+
+[Install]
+WantedBy=multi-user.target

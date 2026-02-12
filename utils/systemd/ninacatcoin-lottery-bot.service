@@ -1,0 +1,20 @@
+[Unit]
+Description=Ninacatcoin Discord Lottery Bot
+After=network-online.target ninacatcoind.service
+Wants=ninacatcoind.service
+ConditionPathExists=/etc/ninacatcoin/discord-bot.env
+
+[Service]
+Type=simple
+User=ninacatcoin
+Group=ninacatcoin
+WorkingDirectory=/var/lib/ninacatcoin
+StateDirectory=ninacatcoin
+LogsDirectory=ninacatcoin
+EnvironmentFile=/etc/ninacatcoin/discord-bot.env
+ExecStart=/usr/bin/python3 /usr/local/bin/ninacatcoin-discord-bot
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

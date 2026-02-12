@@ -1,0 +1,36 @@
+[Unit]
+Description=NinaCat Checkpoint Generator Daemon
+Documentation=file:///opt/ninacatcoin/CHECKPOINT_SETUP.txt
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ninacatcoin
+WorkingDirectory=/opt/ninacatcoin
+ExecStart=/opt/ninacatcoin/.venv/bin/python3 /opt/ninacatcoin/contrib/checkpoint_generator.py \
+    --daemon-mode \
+    --network TESTNET \
+    --daemon-rpc http://localhost:29081 \
+    --interval 1000 \
+    --daemon-interval 7200 \
+    --confirmations 50
+
+# Auto-restart on failure
+Restart=always
+RestartSec=60
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=checkpoint-gen
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/opt/ninacatcoin
+
+[Install]
+WantedBy=multi-user.target
