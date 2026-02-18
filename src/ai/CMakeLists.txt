@@ -21,6 +21,10 @@ add_library(ninacatcoin_ai STATIC
   ai_forced_remediation.cpp
   ai_quarantine_system.hpp
   ai_quarantine_system.cpp
+  ai_checkpoint_validator.hpp
+  ai_checkpoint_validator.cpp
+  ai_checkpoint_monitor.hpp
+  ai_checkpoint_monitor.cpp
 )
 
 target_include_directories(ninacatcoin_ai
