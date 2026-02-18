@@ -29,6 +29,7 @@
 #pragma once
 
 #include "ai/ai_module.hpp"
+#include "ai/ai_checkpoint_validator.hpp"
 #include "misc_log_ex.h"
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
@@ -46,6 +47,44 @@ namespace daemonize {
  * - Monitoring daemon startup process
  */
 class IAModuleIntegration {
+private:
+    /**
+     * @brief Initialize NINA Checkpoint Validator subsystem
+     * @return true if successful, false if initialization fails
+     */
+    static bool initialize_checkpoint_validator()
+    {
+        try {
+            MINFO("[NINA Checkpoint] Activating validation system...");
+            
+            // Get the Checkpoint Validator singleton instance
+            auto& checkpoint_validator = ninacatcoin_ai::CheckpointValidator::getInstance();
+            
+            // Initialize the validator
+            if (!checkpoint_validator.initialize()) {
+                MERROR("[NINA Checkpoint] ❌ Failed to initialize Checkpoint Validator");
+                return false;
+            }
+            
+            MINFO("╔════════════════════════════════════════════════════════════╗");
+            MINFO("║  ✅ CHECKPOINT VALIDATOR ACTIVATED                        ║");
+            MINFO("║                                                            ║");
+            MINFO("║  Monitoring:                                              ║");
+            MINFO("║  ✓ Hash-level detection     (Invalid/modified hashes)    ║");
+            MINFO("║  ✓ Epoch progression        (Rollback prevention)        ║");
+            MINFO("║  ✓ Timeout validation       (Stale data detection)       ║");
+            MINFO("║  ✓ Automatic quarantine     (Source blocking on attack) ║");
+            MINFO("║                                                            ║");
+            MINFO("║  State: 🟢 READY FOR CHECKPOINT DOWNLOADS                ║");
+            MINFO("╚════════════════════════════════════════════════════════════╝");
+            
+            return true;
+        } catch (const std::exception& e) {
+            MERROR("[NINA Checkpoint] Exception during initialization: " << e.what());
+            return false;
+        }
+    }
+
 public:
     /**
      * @brief Initialize the IA Security Module at daemon startup
@@ -90,6 +129,13 @@ public:
             MINFO("║  ✓ Monitoring             (Continuous validation)       ║");
             MINFO("╚════════════════════════════════════════════════════════════╝");
             
+            // Initialize NINA Checkpoint Validator
+            MINFO("[IA] Stage 4: Initializing NINA Checkpoint Validator...");
+            if (!initialize_checkpoint_validator()) {
+                MWARNING("[IA] ⚠️  Checkpoint Validator initialization warning");
+                // Don't fail daemon if checkpoint validator can't init
+            }
+            
             return true;
         }
         catch (const std::exception& e) {
@@ -103,14 +149,30 @@ public:
     }
 
     /**
-     * @brief Shutdown IA module gracefully
+     * @brief Shutdown IA module gracefully (including Checkpoint Validator)
      */
     static void shutdown_ia_module()
     {
         try {
             MINFO("[IA] Shutting down IA Security Module...");
+            
+            // Shutdown Checkpoint Validator first (it may be monitoring)
+            MINFO("[IA] Closing Checkpoint Validator...");
+            try {
+                auto& checkpoint_validator = ninacatcoin_ai::CheckpointValidator::getInstance();
+                checkpoint_validator.shutdown();
+                MINFO("[IA] ✓ Checkpoint Validator closed");
+            } catch (...) {
+                MWARNING("[IA] Warning: Checkpoint Validator shutdown had issues");
+            }
+            
+            // Then shutdown AI module
             ninacatcoin_ai::AIModule::getInstance().shutdown();
-            MINFO("[IA] IA module shutdown complete");
+            
+            MINFO("╔════════════════════════════════════════════════════════════╗");
+            MINFO("║  ✅ IA SECURITY MODULE SHUTDOWN COMPLETE                  ║");
+            MINFO("║  All protection systems have been gracefully closed        ║");
+            MINFO("╚════════════════════════════════════════════════════════════╝");
         }
         catch (const std::exception& e) {
             MERROR("[IA] Exception during IA shutdown: " << e.what());
