@@ -3,6 +3,7 @@
 // AI Module implementation
 
 #include "ai_module.hpp"
+#include "ai_lwma_learning.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -269,6 +270,10 @@ bool AIModule::performSecurityChecks() {
 }
 
 void AIModule::initializeMonitoring() {
+    // Initialize LWMA-1 learning module
+    AILWMALearning::initialize();
+    MGINFO("[AI] LWMA-1 Learning module initialized");
+    
     // Start monitoring thread for continuous integrity checks
     std::thread monitor_thread([this]() {
         monitoringLoop();

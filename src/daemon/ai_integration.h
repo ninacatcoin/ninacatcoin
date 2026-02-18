@@ -32,6 +32,8 @@
 #include "ai/ai_checkpoint_validator.hpp"
 #include "ai/ai_hashrate_recovery_monitor.hpp"
 #include "ai/ai_checkpoint_monitor.hpp"
+#include "discord_notifier.hpp"
+#include "discord_ia_integration.hpp"
 #include "misc_log_ex.h"
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
@@ -88,12 +90,8 @@ private:
         try {
             MINFO("[NINA] Stage 5: Initializing Hashrate Recovery Monitor...");
             
-            auto hashrate_knowledge = ninacatcoin_ai::AIHashrateRecoveryMonitor::initialize_hashrate_learning();
-            
-            MINFO("╔════════════════════════════════════════════════════════════╗");
-            MINFO("║  ✅ HASHRATE RECOVERY MONITOR ACTIVATED                   ║");
-            MINFO("║                                                            ║");
-            MINFO("║  NINA now understands:                                    ║");
+            // Commented: ai_hashrate_recovery_monitor is not compiled
+            // ninacatcoin_ai::AIHashrateRecoveryMonitor::ia_initialize_hashrate_learning();
             MINFO("║  ✓ LWMA-1 difficulty algorithm                           ║");
             MINFO("║  ✓ EDA (Emergency Difficulty Adjustment)                 ║");
             MINFO("║  ✓ Hashrate recovery mechanism                           ║");
@@ -110,6 +108,39 @@ private:
         } catch (const std::exception& e) {
             MERROR("[NINA] Exception in hashrate monitor: " << e.what());
             return false;
+        }
+    }
+
+    /**
+     * @brief Initialize Discord IA Integration subsystem
+     * @return true if successful
+     */
+    static bool initialize_discord_integration()
+    {
+        try {
+            MINFO("[NINA] Stage 7: Initializing Discord IA Integration...");
+            
+            // Try to initialize Discord notifier first
+            const char* discord_webhook = std::getenv("DISCORD_WEBHOOK");
+            if (discord_webhook && discord_webhook[0] != '\0') {
+                DiscordNotifier::initialize(std::string(discord_webhook));
+                MINFO("[IA-Discord] Discord webhook URL configured");
+            } else {
+                MINFO("[IA-Discord] DISCORD_WEBHOOK environment variable not set");
+                MINFO("[IA-Discord] ℹ️  Set DISCORD_WEBHOOK to enable Discord alerts");
+                return true;  // Don't fail daemon, just skip Discord
+            }
+            
+            // Initialize IA to Discord integration
+            if (!DiscordIAIntegration::initialize()) {
+                MWARNING("[IA-Discord] ⚠️  Discord integration initialization warning");
+                return true;  // Still allow daemon to continue
+            }
+            
+            return true;
+        } catch (const std::exception& e) {
+            MWARNING("[NINA] Exception in Discord integration: " << e.what());
+            return true;  // Don't fail daemon for Discord
         }
     }
 
@@ -213,6 +244,13 @@ public:
                 // Don't fail daemon if checkpoint validator can't init
             }
             
+            // Initialize Discord IA Integration
+            MINFO("[IA] Stage 7: Initializing Discord IA Integration...");
+            if (!initialize_discord_integration()) {
+                MWARNING("[IA] ⚠️  Discord Integration initialization warning");
+                // Don't fail daemon if Discord integration can't init
+            }
+            
             return true;
         }
         catch (const std::exception& e) {
@@ -226,22 +264,23 @@ public:
     }
 
     /**
-     * @brief Shutdown IA module gracefully (including Checkpoint Validator)
+     * @brief Shutdown IA module gracefully (including Checkpoint Validator and Discord)
      */
     static void shutdown_ia_module()
     {
         try {
             MINFO("[IA] Shutting down IA Security Module...");
             
-            // Shutdown Checkpoint Validator first (it may be monitoring)
-            MINFO("[IA] Closing Checkpoint Validator...");
+            // Shutdown Discord integration first (it may be monitoring)
+            MINFO("[IA] Closing Discord IA Integration...");
             try {
-                auto& checkpoint_validator = ninacatcoin_ai::CheckpointValidator::getInstance();
-                checkpoint_validator.shutdown();
-                MINFO("[IA] ✓ Checkpoint Validator closed");
+                DiscordIAIntegration::shutdown();
+                MINFO("[IA] ✓ Discord IA Integration closed");
             } catch (...) {
-                MWARNING("[IA] Warning: Checkpoint Validator shutdown had issues");
+                MWARNING("[IA] Warning: Discord IA Integration shutdown had issues");
             }
+            
+            // Checkpoint Validator cleanup handled by singleton destructor
             
             // Then shutdown AI module
             ninacatcoin_ai::AIModule::getInstance().shutdown();

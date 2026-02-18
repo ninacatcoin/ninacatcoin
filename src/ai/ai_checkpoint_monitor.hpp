@@ -32,6 +32,7 @@
 #include <map>
 #include <vector>
 #include <cstdint>
+#include <iomanip>
 #include "misc_log_ex.h"
 #include "crypto/hash.h"
 

@@ -1,4 +1,4 @@
-#define DEF_ninacatcoin_VERSION_TAG "b93f23158"
+#define DEF_ninacatcoin_VERSION_TAG "fb168cbbe"
 #define DEF_ninacatcoin_VERSION "0.1.0.0"
 #define DEF_ninacatcoin_RELEASE_NAME "Ninacatcoin"
 #define DEF_ninacatcoin_VERSION_FULL DEF_ninacatcoin_VERSION "-" DEF_ninacatcoin_VERSION_TAG

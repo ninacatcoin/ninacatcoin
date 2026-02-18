@@ -257,6 +257,54 @@ daemon.cpp.s:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/daemon.cpp.s
 .PHONY : daemon.cpp.s
 
+discord_ia_integration.o: discord_ia_integration.cpp.o
+.PHONY : discord_ia_integration.o
+
+# target to build an object file
+discord_ia_integration.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/discord_ia_integration.cpp.o
+.PHONY : discord_ia_integration.cpp.o
+
+discord_ia_integration.i: discord_ia_integration.cpp.i
+.PHONY : discord_ia_integration.i
+
+# target to preprocess a source file
+discord_ia_integration.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/discord_ia_integration.cpp.i
+.PHONY : discord_ia_integration.cpp.i
+
+discord_ia_integration.s: discord_ia_integration.cpp.s
+.PHONY : discord_ia_integration.s
+
+# target to generate assembly for a file
+discord_ia_integration.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/discord_ia_integration.cpp.s
+.PHONY : discord_ia_integration.cpp.s
+
+discord_notifier.o: discord_notifier.cpp.o
+.PHONY : discord_notifier.o
+
+# target to build an object file
+discord_notifier.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/discord_notifier.cpp.o
+.PHONY : discord_notifier.cpp.o
+
+discord_notifier.i: discord_notifier.cpp.i
+.PHONY : discord_notifier.i
+
+# target to preprocess a source file
+discord_notifier.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/discord_notifier.cpp.i
+.PHONY : discord_notifier.cpp.i
+
+discord_notifier.s: discord_notifier.cpp.s
+.PHONY : discord_notifier.s
+
+# target to generate assembly for a file
+discord_notifier.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/discord_notifier.cpp.s
+.PHONY : discord_notifier.cpp.s
+
 executor.o: executor.cpp.o
 .PHONY : executor.o
 
@@ -352,6 +400,12 @@ help:
 	@echo "... daemon.o"
 	@echo "... daemon.i"
 	@echo "... daemon.s"
+	@echo "... discord_ia_integration.o"
+	@echo "... discord_ia_integration.i"
+	@echo "... discord_ia_integration.s"
+	@echo "... discord_notifier.o"
+	@echo "... discord_notifier.i"
+	@echo "... discord_notifier.s"
 	@echo "... executor.o"
 	@echo "... executor.i"
 	@echo "... executor.s"

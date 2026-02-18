@@ -185,6 +185,54 @@ ninacatcoin_ai/fast:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/build
 .PHONY : ninacatcoin_ai/fast
 
+ai_checkpoint_monitor.o: ai_checkpoint_monitor.cpp.o
+.PHONY : ai_checkpoint_monitor.o
+
+# target to build an object file
+ai_checkpoint_monitor.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_checkpoint_monitor.cpp.o
+.PHONY : ai_checkpoint_monitor.cpp.o
+
+ai_checkpoint_monitor.i: ai_checkpoint_monitor.cpp.i
+.PHONY : ai_checkpoint_monitor.i
+
+# target to preprocess a source file
+ai_checkpoint_monitor.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_checkpoint_monitor.cpp.i
+.PHONY : ai_checkpoint_monitor.cpp.i
+
+ai_checkpoint_monitor.s: ai_checkpoint_monitor.cpp.s
+.PHONY : ai_checkpoint_monitor.s
+
+# target to generate assembly for a file
+ai_checkpoint_monitor.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_checkpoint_monitor.cpp.s
+.PHONY : ai_checkpoint_monitor.cpp.s
+
+ai_checkpoint_validator.o: ai_checkpoint_validator.cpp.o
+.PHONY : ai_checkpoint_validator.o
+
+# target to build an object file
+ai_checkpoint_validator.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_checkpoint_validator.cpp.o
+.PHONY : ai_checkpoint_validator.cpp.o
+
+ai_checkpoint_validator.i: ai_checkpoint_validator.cpp.i
+.PHONY : ai_checkpoint_validator.i
+
+# target to preprocess a source file
+ai_checkpoint_validator.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_checkpoint_validator.cpp.i
+.PHONY : ai_checkpoint_validator.cpp.i
+
+ai_checkpoint_validator.s: ai_checkpoint_validator.cpp.s
+.PHONY : ai_checkpoint_validator.s
+
+# target to generate assembly for a file
+ai_checkpoint_validator.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_checkpoint_validator.cpp.s
+.PHONY : ai_checkpoint_validator.cpp.s
+
 ai_forced_remediation.o: ai_forced_remediation.cpp.o
 .PHONY : ai_forced_remediation.o
 
@@ -232,6 +280,30 @@ ai_integrity_verifier.s: ai_integrity_verifier.cpp.s
 ai_integrity_verifier.cpp.s:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_integrity_verifier.cpp.s
 .PHONY : ai_integrity_verifier.cpp.s
+
+ai_lwma_learning.o: ai_lwma_learning.cpp.o
+.PHONY : ai_lwma_learning.o
+
+# target to build an object file
+ai_lwma_learning.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_lwma_learning.cpp.o
+.PHONY : ai_lwma_learning.cpp.o
+
+ai_lwma_learning.i: ai_lwma_learning.cpp.i
+.PHONY : ai_lwma_learning.i
+
+# target to preprocess a source file
+ai_lwma_learning.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_lwma_learning.cpp.i
+.PHONY : ai_lwma_learning.cpp.i
+
+ai_lwma_learning.s: ai_lwma_learning.cpp.s
+.PHONY : ai_lwma_learning.s
+
+# target to generate assembly for a file
+ai_lwma_learning.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_lwma_learning.cpp.s
+.PHONY : ai_lwma_learning.cpp.s
 
 ai_module.o: ai_module.cpp.o
 .PHONY : ai_module.o
@@ -343,12 +415,21 @@ help:
 	@echo "... rebuild_cache"
 	@echo "... test"
 	@echo "... ninacatcoin_ai"
+	@echo "... ai_checkpoint_monitor.o"
+	@echo "... ai_checkpoint_monitor.i"
+	@echo "... ai_checkpoint_monitor.s"
+	@echo "... ai_checkpoint_validator.o"
+	@echo "... ai_checkpoint_validator.i"
+	@echo "... ai_checkpoint_validator.s"
 	@echo "... ai_forced_remediation.o"
 	@echo "... ai_forced_remediation.i"
 	@echo "... ai_forced_remediation.s"
 	@echo "... ai_integrity_verifier.o"
 	@echo "... ai_integrity_verifier.i"
 	@echo "... ai_integrity_verifier.s"
+	@echo "... ai_lwma_learning.o"
+	@echo "... ai_lwma_learning.i"
+	@echo "... ai_lwma_learning.s"
 	@echo "... ai_module.o"
 	@echo "... ai_module.i"
 	@echo "... ai_module.s"

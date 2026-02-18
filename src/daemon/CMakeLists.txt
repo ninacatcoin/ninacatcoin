@@ -33,6 +33,8 @@ set(daemon_sources
   executor.cpp
   main.cpp
   rpc_command_executor.cpp
+  discord_notifier.cpp
+  discord_ia_integration.cpp
 )
 
 set(daemon_headers)

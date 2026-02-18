@@ -6,6 +6,17 @@
 
 cmake_minimum_required(VERSION 3.10)
 
+# Find jsoncpp package using pkg-config
+include(FindPkgConfig)
+pkg_check_modules(JSONCPP jsoncpp)
+
+if(NOT JSONCPP_FOUND)
+  # Fallback: set manually if jsoncpp package is not found
+  set(JSONCPP_INCLUDE_DIRS "/usr/include/jsoncpp")
+  set(JSONCPP_LIBRARIES jsoncpp)
+  message(STATUS "[AI] Using jsoncpp from /usr/include/jsoncpp")
+endif()
+
 # Define AI module library
 add_library(ninacatcoin_ai STATIC
   ai_config.hpp
@@ -25,12 +36,17 @@ add_library(ninacatcoin_ai STATIC
   ai_checkpoint_validator.cpp
   ai_checkpoint_monitor.hpp
   ai_checkpoint_monitor.cpp
+  ai_lwma_learning.hpp
+  ai_lwma_learning.cpp
+  # ai_hashrate_recovery_monitor.hpp
+  # ai_hashrate_recovery_monitor.cpp
 )
 
 target_include_directories(ninacatcoin_ai
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_SOURCE_DIR}/src/common
+    ${JSONCPP_INCLUDE_DIRS}
 )
 
 target_compile_definitions(ninacatcoin_ai
@@ -48,10 +64,11 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
   )
 endif()
 
-# Link with common library
+# Link with common library and jsoncpp
 target_link_libraries(ninacatcoin_ai
   PUBLIC
     common
+    ${JSONCPP_LIBRARIES}
 )
 
 # Install headers

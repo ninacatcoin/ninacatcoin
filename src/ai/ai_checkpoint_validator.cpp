@@ -8,7 +8,7 @@
 #include <sstream>
 #include <ctime>
 #include <algorithm>
-#include <json/json.h>
+#include <jsoncpp/json/json.h>
 
 namespace ninacatcoin_ai {
 
@@ -179,8 +179,14 @@ CheckpointValidationStatus CheckpointValidator::validateCheckpointFile(
         std::cout << "[NINA Checkpoint] Expected height range: " << (previous_height + 1)
                   << " - " << current_height << std::endl;
         
+        // Convert map<hash, height> to vector<pair<height, hash>>
+        std::vector<std::pair<uint64_t, std::string>> new_hash_heights_vec;
+        for (const auto& entry : changes_out.new_hash_heights) {
+            new_hash_heights_vec.emplace_back(entry.second, entry.first);
+        }
+        
         // Validate that all new hashes exist in blockchain
-        if (!validateNewHashesAgainstBlockchain(changes_out.new_hash_heights, previous_height)) {
+        if (!validateNewHashesAgainstBlockchain(new_hash_heights_vec, previous_height)) {
             last_error = "ATTACK DETECTED: New hashes not found in blockchain";
             std::cerr << "[NINA Checkpoint] 🚨 " << last_error << std::endl;
             
