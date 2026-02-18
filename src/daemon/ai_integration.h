@@ -30,6 +30,8 @@
 
 #include "ai/ai_module.hpp"
 #include "ai/ai_checkpoint_validator.hpp"
+#include "ai/ai_hashrate_recovery_monitor.hpp"
+#include "ai/ai_checkpoint_monitor.hpp"
 #include "misc_log_ex.h"
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
@@ -49,13 +51,76 @@ namespace daemonize {
 class IAModuleIntegration {
 private:
     /**
+     * @brief Initialize AICheckpointMonitor subsystem
+     * @return true if successful
+     */
+    static bool initialize_checkpoint_monitor()
+    {
+        try {
+            MINFO("[NINA] Stage 4: Initializing Checkpoint Monitor...");
+            
+            auto checkpoint_knowledge = ninacatcoin_ai::AICheckpointMonitor::initialize_checkpoint_learning();
+            
+            MINFO("╔════════════════════════════════════════════════════════════╗");
+            MINFO("║  ✅ CHECKPOINT MONITOR INITIALIZED                         ║");
+            MINFO("║                                                            ║");
+            MINFO("║  NINA now understands:                                    ║");
+            MINFO("║  ✓ Checkpoint structure (height, hash, difficulty)       ║");
+            MINFO("║  ✓ Checkpoint sources (compiled, JSON, DNS)              ║");
+            MINFO("║  ✓ Network synchronization patterns                      ║");
+            MINFO("║                                                            ║");
+            MINFO("║  Status: Ready to learn new checkpoints                   ║");
+            MINFO("╚════════════════════════════════════════════════════════════╝");
+            
+            return true;
+        } catch (const std::exception& e) {
+            MERROR("[NINA] Exception in checkpoint monitor: " << e.what());
+            return false;
+        }
+    }
+
+    /**
+     * @brief Initialize AIHashrateRecoveryMonitor subsystem
+     * @return true if successful
+     */
+    static bool initialize_hashrate_monitor()
+    {
+        try {
+            MINFO("[NINA] Stage 5: Initializing Hashrate Recovery Monitor...");
+            
+            auto hashrate_knowledge = ninacatcoin_ai::AIHashrateRecoveryMonitor::initialize_hashrate_learning();
+            
+            MINFO("╔════════════════════════════════════════════════════════════╗");
+            MINFO("║  ✅ HASHRATE RECOVERY MONITOR ACTIVATED                   ║");
+            MINFO("║                                                            ║");
+            MINFO("║  NINA now understands:                                    ║");
+            MINFO("║  ✓ LWMA-1 difficulty algorithm                           ║");
+            MINFO("║  ✓ EDA (Emergency Difficulty Adjustment)                 ║");
+            MINFO("║  ✓ Hashrate recovery mechanism                           ║");
+            MINFO("║  ✓ Block timestamp validation                            ║");
+            MINFO("║                                                            ║");
+            MINFO("║  AUTHORIZED CHECKPOINT SOURCES:                           ║");
+            MINFO("║  • Seed1: 87.106.7.156 (checkpoints.json)                ║");
+            MINFO("║  • Seed2: 217.154.196.9 (checkpoints.dat)                ║");
+            MINFO("║                                                            ║");
+            MINFO("║  WARNING: Checkpoints from unauthorized sources REJECTED  ║");
+            MINFO("╚════════════════════════════════════════════════════════════╝");
+            
+            return true;
+        } catch (const std::exception& e) {
+            MERROR("[NINA] Exception in hashrate monitor: " << e.what());
+            return false;
+        }
+    }
+
+    /**
      * @brief Initialize NINA Checkpoint Validator subsystem
      * @return true if successful, false if initialization fails
      */
     static bool initialize_checkpoint_validator()
     {
         try {
-            MINFO("[NINA Checkpoint] Activating validation system...");
+            MINFO("[NINA] Stage 6: Initializing Checkpoint Validator...");
             
             // Get the Checkpoint Validator singleton instance
             auto& checkpoint_validator = ninacatcoin_ai::CheckpointValidator::getInstance();
@@ -129,8 +194,20 @@ public:
             MINFO("║  ✓ Monitoring             (Continuous validation)       ║");
             MINFO("╚════════════════════════════════════════════════════════════╝");
             
+            // Initialize Checkpoint Monitor
+            if (!initialize_checkpoint_monitor()) {
+                MWARNING("[IA] ⚠️  Checkpoint Monitor initialization warning");
+                // Don't fail daemon
+            }
+
+            // Initialize Hashrate Recovery Monitor
+            if (!initialize_hashrate_monitor()) {
+                MWARNING("[IA] ⚠️  Hashrate Recovery Monitor initialization warning");
+                // Don't fail daemon
+            }
+            
             // Initialize NINA Checkpoint Validator
-            MINFO("[IA] Stage 4: Initializing NINA Checkpoint Validator...");
+            MINFO("[IA] Stage 6: Initializing NINA Checkpoint Validator...");
             if (!initialize_checkpoint_validator()) {
                 MWARNING("[IA] ⚠️  Checkpoint Validator initialization warning");
                 // Don't fail daemon if checkpoint validator can't init
