@@ -1,0 +1,811 @@
+VISIT  www.ninacatcoin.es
+
+[size=20pt][b]NINACATCOIN WHITE PAPER[/b][/size]
+
+[b]Version 2.0 — February 2026[/b]
+
+[hr]
+
+[size=14pt][b]Table of Contents[/b][/size]
+
+1. Preface: History and Meaning
+2. Vision and Purpose
+3. The Genesis Block
+4. Emission Model: Halving and Rewards
+5. High-Entropy Events: X2 and X200
+6. Difficulty Algorithm: LWMA-1
+7. Network Fees
+8. Privacy and Anonymity
+9. Enhanced RandomX Mining
+10. Automatic Checkpoints: 51% Defense
+11. Checkpoint Corruption Detection and Auto-Repair
+12. Precomputed Block Hashes: checkpoints.dat
+13. Intelligent Validation Enhancements
+14. Discord Bot: Real-Time Events
+15. Block Explorer
+16. Technical Architecture
+17. Roadmap and Future Development
+
+[hr]
+
+[size=16pt][b]1. Preface: History and Meaning[/b][/size]
+
+[size=12pt][b]Project Origins[/b][/size]
+
+[b]Ninacatcoin[/b] was born from the [b]Monero[/b] codebase, one of the most respected cryptocurrency projects in terms of privacy and decentralization. Just as Monero was based on the CryptoNote protocol, Ninacatcoin uses Monero's solid, battle-tested architecture as its foundation, implementing fundamental improvements in several critical areas:
+
+[list]
+[li][b]Anti-51% security:[/b] Automatic checkpoints every 60 minutes vs manual checkpoints updated every 6–12 months in Monero[/li]
+[li][b]Mining fairness:[/b] Enhanced RandomX with GPU penalty to prevent mining monopolies[/li]
+[li][b]Transparent emissions:[/b] X2 and X200 high-entropy events with anti-manipulation mechanisms[/li]
+[li][b]Real decentralization:[/b] No manual intervention required in critical processes[/li]
+[li][b]Rapid difficulty adjustment:[/b] LWMA-1 algorithm reacts within blocks, not days or weeks[/li]
+[/list]
+
+This project respects and acknowledges the work of the Monero community as a technical foundation, while implementing an alternative vision of how a private cryptocurrency should operate. Monero represents the gold standard in privacy-focused cryptocurrencies, but several design choices — particularly around manual checkpoints, difficulty adjustment speed, and mining reward predictability — left room for meaningful improvement. Ninacatcoin fills these gaps while preserving privacy, fungibility, and resistance to surveillance.
+
+[size=12pt][b]The Name: Ninacatcoin[/b][/size]
+
+The name [b]"Ninacat"[/b] is a direct, deeply personal tribute — it comes from the loss of a beloved companion: [b]a cat named Nina[/b] who was the most fun, friendly, and joyful being anyone could meet.
+
+[b]Nina[/b] was synonymous with qualities that every cryptocurrency should embody:
+
+[list]
+[li][b]Kindness:[/b] Always friendly with everyone — just as Ninacatcoin treats all miners equally[/li]
+[li][b]Generosity:[/b] She brought joy without asking for anything — just as X2/X200 events randomly reward miners[/li]
+[li][b]Fun:[/b] She constantly brought laughter — Ninacatcoin brings excitement to an otherwise deterministic process[/li]
+[li][b]Unconditional companionship:[/b] Present in difficult times — Ninacatcoin's automatic systems keep running even under attack[/li]
+[/list]
+
+Her memory is [b]immutably recorded in the blockchain[/b] — carved into the genesis block where it can never be erased.
+
+[b]In the genesis block (height 0), there is an engraved message dedicated to Nina:[/b]
+
+[code]
+const char kDefaultGenesisMsg[] =
+  "Ninacatcoin 25/05/2014 16/02/2019 GOODBYE  "
+  "No pude protegerte entonces, pero ahora voy a crear algo que se defienda solo y sea justo. "
+  "I couldn't protect you back then, but now I am creating something that can defend itself and be fair.";
+[/code]
+
+[table]
+[tr][td][b]Element[/b][/td][td][b]Meaning[/b][/td][/tr]
+[tr][td]25/05/2014[/td][td]Nina's birth date[/td][/tr]
+[tr][td]16/02/2019[/td][td]Date of passing[/td][/tr]
+[tr][td]GOODBYE[/td][td]Final farewell[/td][/tr]
+[tr][td]"I couldn't protect you..."[/td][td]A promise to create something fair and self-sufficient[/td][/tr]
+[/table]
+
+[size=12pt][b]Nina's Legacy: The X2 and X200 Events[/b][/size]
+
+Nina's kindness directly inspired the [b]X2 and X200 event system[/b]. Nina gave without expecting anything in return, unpredictably, to everyone equally. That is what Ninacatcoin does — [b]generously rewarding miners[/b] with random bonus payments:
+
+[list]
+[li][b]X2 (Reward Doubler):[/b] Occurs ~183 times per year. A lucky miner receives 2x the base reward.[/li]
+[li][b]X200 (Special Multiplier):[/b] Occurs ~6 times per year. A miner receives 200x the base reward — a moment of extraordinary generosity.[/li]
+[/list]
+
+[code]
+NINA'S PHILOSOPHY           →  NINACATCOIN'S PHILOSOPHY
+Generous kindness            →  Generous rewards (X2, X200)
+Surprise love                →  Surprise events in mining
+No predictable pattern       →  Fair random distribution
+Everyone deserves the best   →  All miners can win, regardless of hashrate
+[/code]
+
+A single CPU miner has the same percentage chance of receiving an X200 reward as a large farm. The probability is per block, not per miner.
+
+[size=12pt][b]The Hidden Secret: The Impossible Event (Simultaneous X2 + X200)[/b][/size]
+
+There is an infinitesimal probability that both X2 and X200 trigger on the [b]same block[/b] — an [b]emergent consequence[/b] of two independent systems:
+
+[code]
+Final Reward = Base Reward × 2 × 200 = Base Reward × 400x
+[/code]
+
+[code]
+if (is_x2_event(...)) base_reward *= 2;      // Executes independently
+if (is_x200_event(...)) base_reward *= 200;  // Also executes independently
+// Natural accumulation: original × 2 × 200 = original × 400
+[/code]
+
+Because these are "if" statements (not "else if"), both can trigger on the same block:
+
+[table]
+[tr][td][b]Event[/b][/td][td][b]Probability[/b][/td][td][b]Frequency[/b][/td][td][b]Reward[/b][/td][/tr]
+[tr][td]X2 Only[/td][td]1 in 1,400[/td][td]~183 times/year[/td][td]2x base[/td][/tr]
+[tr][td]X200 Only[/td][td]1 in 43,800[/td][td]~6 times/year[/td][td]200x base[/td][/tr]
+[tr][td]X2 + X200[/td][td]1 in ~1,432,000[/td][td]~once every 5.5 years[/td][td]400x base[/td][/tr]
+[tr][td]Normal Block[/td][td]~99.9%[/td][td]Majority[/td][td]1x base[/td][/tr]
+[/table]
+
+Nina was generous without warning. Ninacatcoin honors this by allowing the protocol itself to be generous organically and unpredictably.
+
+[hr]
+
+[size=16pt][b]2. Vision and Purpose[/b][/size]
+
+[b]Ninacatcoin[/b] is a private, secure, and truly decentralized cryptocurrency evolved from CryptoNote principles, inheriting ring signatures, stealth addresses, and confidential transactions while addressing key weaknesses in existing implementations.
+
+[b]Key innovations:[/b]
+
+[list]
+[li][b]High-entropy emission events (X2 and X200)[/b] that reward miners unpredictably while maintaining strict supply bounds[/li]
+[li][b]Fully automatic checkpoints[/b] every 60 minutes, eliminating manual intervention[/li]
+[li][b]LWMA-1 difficulty algorithm[/b] reacting to hashrate changes in 3–5 blocks, not hundreds[/li]
+[li][b]Emergency Difficulty Adjustment (EDA)[/b] preventing network stalls after hashrate departures[/li]
+[li][b]Enhanced RandomX[/b] with GPU penalty and shorter epochs, keeping CPU mining viable[/li]
+[/list]
+
+[b]User fund control is ensured through:[/b]
+
+[list]
+[li][b]Mandatory ring signatures[/b] in all transactions (enforced by protocol)[/li]
+[li][b]RingCT[/b] hiding amounts via Pedersen commitments and Bulletproof+ range proofs[/li]
+[li][b]Optional network anonymity[/b] via Tor, I2P, and Dandelion++ propagation[/li]
+[li][b]Decentralized architecture[/b] with no single points of failure[/li]
+[/list]
+
+Development philosophy: security over features, automation over human intervention, fairness over efficiency, code transparency with user privacy. The team maintains an open process through GitHub and IRC (#ninacatcoin-dev).
+
+[hr]
+
+[size=16pt][b]3. The Genesis Block (Block Zero)[/b][/size]
+
+The genesis block paid an initial reward of [b]10,000 NINA[/b], fixed and immutably defined in the chain configuration:
+
+[code]
+constexpr uint64_t GENESIS_REWARD = 10000 * COIN; // 10,000 NINA
+[/code]
+
+These 10,000 NINA were [b]immediately and permanently burned[/b] by sending them to an address for which no private key exists or can ever be derived:
+
+[b]Burn Address:[/b]
+[code]
+LmcAtBXwRf1WUEyHTYFXm7E5QhHNcGUrveXPkbFD2vC8jX1LM9kCGYCR9DUzKcPJqMKMNbP2eamG96snnvMdXqR62aNMheC
+[/code]
+
+[b]Why burned?[/b]
+[list]
+[li][b]Total transparency:[/b] No developer retains access to the initial coins — there is no "premine"[/li]
+[li][b]Distribution fairness:[/b] All circulating NINA come from mining rewards, X2/X200, or fees[/li]
+[li][b]Immutable reference point:[/b] Block zero is the cryptographic seed of the emission system[/li]
+[li][b]Trust establishment:[/b] Anyone can verify the burn by checking the genesis block[/li]
+[/list]
+
+The consensus layer ensures no chain variant can pay more than 10,000 NINA in block 0, and no fork can redistribute those coins.
+
+[hr]
+
+[size=16pt][b]4. Emission Model: Halving and Rewards[/b][/size]
+
+[size=12pt][b]Base Reward and Automatic Halving[/b][/size]
+
+[list]
+[li][b]Total maximum supply:[/b] 900,000,000 NINA (nine hundred million)[/li]
+[li][b]Initial base reward:[/b] 4 NINA per block[/li]
+[li][b]Block time target:[/b] 120 seconds (2 minutes)[/li]
+[li][b]Halving interval:[/b] 262,800 blocks (~1 year at target block time)[/li]
+[li][b]Minimum reward floor:[/b] 2 NINA per block (permanent tail emission)[/li]
+[/list]
+
+[b]Halving Formula:[/b]
+[code]
+halvings = floor(height / 262,800)
+base_reward = max(4 NINA >> halvings, 2 NINA)
+[/code]
+
+[table]
+[tr][td][b]Block Range[/b][/td][td][b]Year[/b][/td][td][b]Base Reward[/b][/td][td][b]Annual Emission[/b][/td][/tr]
+[tr][td]0–262,799[/td][td]Year 1[/td][td]4 NINA[/td][td]1,051,200 NINA[/td][/tr]
+[tr][td]262,800+[/td][td]Year 2+[/td][td]2 NINA[/td][td]525,600 NINA[/td][/tr]
+[/table]
+
+[size=12pt][b]The 2 NINA Floor: Permanent Tail Emission[/b][/size]
+
+Unlike Bitcoin (which will eventually pay zero block rewards), Ninacatcoin maintains a permanent 2 NINA minimum. This ensures miner incentive permanence, network security regardless of fee market conditions, predictable supply growth (~525,600 NINA/year), and asymptotically decreasing inflation.
+
+[size=12pt][b]Safety Mechanisms[/b][/size]
+
+[list]
+[li][b]Soft brake:[/b] After the first halving (height 262,800), the reward stabilizes at 2 NINA per block permanently.[/li]
+[li][b]Hard brake:[/b] When fewer than 10,000 NINA remain to be emitted, all X2 and X200 events are disabled, ensuring the maximum supply is [b]never exceeded[/b].[/li]
+[/list]
+
+[size=12pt][b]Emission Including X2/X200 Events[/b][/size]
+
+[code]
+X2 contribution:   183 events × 4 NINA extra = ~732 NINA/year
+X200 contribution: 6 events × 796 NINA extra = ~4,776 NINA/year
+Total extra:       ~5,508 NINA/year (~0.5% above base emission)
+[/code]
+
+This modest acceleration is accounted for in the total supply calculations and protected by the hard brake mechanism.
+
+[hr]
+
+[size=16pt][b]5. High-Entropy Events: X2 and X200[/b][/size]
+
+[size=12pt][b]What Are X2 and X200?[/b][/size]
+
+Ninacatcoin implements [b]pseudorandom events[/b] that multiply the block reward at unpredictable intervals:
+
+[list]
+[li][b]X2:[/b] Block pays 2x the base reward (e.g., 8 NINA in year 1)[/li]
+[li][b]X200:[/b] Block pays 200x the base reward (e.g., 800 NINA in year 1)[/li]
+[/list]
+
+[b]Expected frequency per year (~262,800 blocks):[/b]
+[list]
+[li]X2: ~183 events/year (one every ~1,436 blocks, roughly every 2 days)[/li]
+[li]X200: ~6 events/year (one every ~43,800 blocks, roughly every 2 months)[/li]
+[/list]
+
+These events are [b]deterministic but unpredictable[/b] — every node calculates the same result, but no one can predict it before the previous block is mined.
+
+[size=12pt][b]Probability Calculation and Anti-Manipulation[/b][/size]
+
+Event detection is [b]entirely deterministic based on the previous block hash[/b], never on unseeded random numbers, system clocks, or external oracles:
+
+[code]
+auto get_event_roll = [&](uint8_t tag, uint64_t &out) {
+    if (prev_block_hash) {
+        std::array<uint8_t, sizeof(crypto::hash) + 1> buf{};
+        std::memcpy(buf.data(), prev_block_hash, sizeof(crypto::hash));
+        buf[sizeof(crypto::hash)] = tag;
+        const crypto::hash h = crypto::cn_fast_hash(buf.data(), buf.size());
+        std::memcpy(&out, &h, sizeof(uint64_t));
+    }
+};
+[/code]
+
+[b]Process:[/b]
+[list]
+[li]Take the previous block hash (32 bytes, 256 bits)[/li]
+[li]Append an identifier tag (1 byte): tag=2 for X2, tag=200 for X200[/li]
+[li]Apply Keccak-256 (cn_fast_hash) to the combined 33-byte buffer[/li]
+[li]Extract the first 64 bits as an unsigned integer[/li]
+[li]Calculate: rnd % BLOCKS_PER_YEAR (262,800)[/li]
+[li]If result < 183 → X2 event; If result < 6 → X200 event[/li]
+[/list]
+
+[b]Why manipulation-resistant?[/b] Changing the block hash requires re-mining (full PoW), the miner doesn't know if the next block will be theirs, even with 100% hashrate the cost exceeds the expected reward, and Keccak-256 has no shortcuts.
+
+[size=12pt][b]Emission Limits[/b][/size]
+
+[list]
+[li][b]Supply limit:[/b] If already_generated_coins + (base_reward × multiplier) > MONEY_SUPPLY, the reward is reduced to exactly what remains[/li]
+[li][b]Hard brake:[/b] If fewer than 10,000 NINA remain, X2/X200 are completely disabled[/li]
+[/list]
+
+Block at height 100 is [b]always X2[/b], demonstrating the system's functionality on the live network.
+
+[hr]
+
+[size=16pt][b]6. Difficulty Algorithm: LWMA-1[/b][/size]
+
+[size=12pt][b]Target Block Time[/b][/size]
+
+Ninacatcoin targets a block time of [b]120 seconds[/b] (DIFFICULTY_TARGET_V2 = 120), producing approximately 30 blocks per hour, 720 blocks per day.
+
+[size=12pt][b]The Problem with Simple Moving Average (SMA)[/b][/size]
+
+The original Monero difficulty algorithm uses SMA over 720 blocks (~24 hours). It has severe limitations for smaller networks:
+
+[list]
+[li][b]Slow reaction:[/b] 50% hashrate loss takes ~24 hours to adjust[/li]
+[li][b]Equal weighting:[/b] Old blocks influence difficulty as much as new ones[/li]
+[li][b]Timestamp sorting vulnerability:[/b] Manipulation possible[/li]
+[li][b]Hash-and-dump susceptibility:[/b] Network takes a full day to recover[/li]
+[/list]
+
+In January 2025, Ninacatcoin experienced exactly this: a miner with ~210 KH/s departed, leaving ~1 KH/s against difficulty calibrated for 215 KH/s. With the old SMA, the network would have needed ~29 days to normalize.
+
+[size=12pt][b]LWMA-1: The Solution[/b][/size]
+
+Ninacatcoin uses the [b]LWMA-1[/b] algorithm (Linear Weighted Moving Average), designed by zawy12 — the industry standard for difficulty adjustment in small/medium cryptocurrencies.
+
+[b]Key parameters:[/b]
+[code]
+DIFFICULTY_WINDOW  = 60 blocks (~2 hours of data)
+DIFFICULTY_LAG     = 2  blocks
+DIFFICULTY_CUT     = 6  timestamps (excluded from extremes)
+[/code]
+
+[b]Core Formula:[/b]
+[code]
+next_difficulty = (sum_difficulty × T × (N + 1)) / (2 × sum_weighted_solvetimes)
+
+Where:
+  T   = target time (120 seconds)
+  N   = number of intervals in window (up to 60)
+  D_i = difficulty of block i
+  st_i = solve time of block i, clamped to [-6T, 6T]
+  weight_i = i (1 for oldest, N for newest)
+[/code]
+
+[b]LWMA-1 vs SMA comparison:[/b]
+
+[table]
+[tr][td][b]Feature[/b][/td][td][b]SMA (Monero)[/b][/td][td][b]LWMA-1 (Ninacatcoin)[/b][/td][/tr]
+[tr][td]Window size[/td][td]720 blocks (~24h)[/td][td]60 blocks (~2h)[/td][/tr]
+[tr][td]Weighting[/td][td]Equal for all blocks[/td][td]Linear: recent weigh more[/td][/tr]
+[tr][td]Timestamp handling[/td][td]Sorted (loses order)[/td][td]Unsorted (real solve times)[/td][/tr]
+[tr][td]Reaction speed[/td][td]Hundreds of blocks[/td][td]3–5 blocks[/td][/tr]
+[tr][td]Timestamp manipulation[/td][td]Vulnerable[/td][td]Clamped to [-6T, 6T][/td][/tr]
+[tr][td]99% hashrate loss recovery[/td][td]~29 days[/td][td]1–2 blocks (with EDA)[/td][/tr]
+[/table]
+
+The most recent block contributes [b]60x more[/b] to the difficulty calculation than the oldest block, allowing the algorithm to react within 3–5 blocks (~6–10 minutes).
+
+[size=12pt][b]Emergency Difficulty Adjustment (EDA)[/b][/size]
+
+If a block takes more than 6x the target time (>720 seconds), EDA overrides LWMA and caps difficulty:
+
+[code]
+EDA Trigger: last_block_time > 6 × 120s = 720s (12 minutes)
+
+adjusted_difficulty = last_difficulty × target / actual_solve_time
+next_difficulty = min(LWMA_result, adjusted_difficulty)
+[/code]
+
+[b]Example — catastrophic hashrate departure:[/b]
+Difficulty 9,000,000 (calibrated for 200 KH/s), hashrate drops to 1 KH/s, block takes 3,600s (1 hour):
+
+[code]
+adjusted = 9,000,000 × 120 / 3,600 = 300,000
+→ Next block mined at difficulty 300,000 instead of 9,000,000
+[/code]
+
+EDA convergence:
+
+[table]
+[tr][td][b]Block[/b][/td][td][b]Solve Time[/b][/td][td][b]Difficulty[/b][/td][td][b]Status[/b][/td][/tr]
+[tr][td]N[/td][td]3,600s[/td][td]9,000,000[/td][td]EDA triggers[/td][/tr]
+[tr][td]N+1[/td][td]~360s[/td][td]300,000[/td][td]EDA triggers again[/td][/tr]
+[tr][td]N+2[/td][td]~180s[/td][td]100,000[/td][td]EDA not needed[/td][/tr]
+[tr][td]N+3[/td][td]~120s[/td][td]~80,000[/td][td]LWMA converging[/td][/tr]
+[tr][td]N+10[/td][td]~120s[/td][td]~60,000[/td][td]Stable[/td][/tr]
+[/table]
+
+[b]Protection against hashrate volatility:[/b]
+
+[table]
+[tr][td][b]Phase[/b][/td][td][b]SMA-720 (Old)[/b][/td][td][b]LWMA-60 + EDA[/b][/td][/tr]
+[tr][td]Large miner enters[/td][td]Rises over 720 blocks[/td][td]Rises in ~10 blocks[/td][/tr]
+[tr][td]Large miner leaves[/td][td]29 days to normalize[/td][td]1–2 blocks (EDA)[/td][/tr]
+[tr][td]Rent-and-dump[/td][td]Devastating, 24h recovery[/td][td]Negligible, 20 min recovery[/td][/tr]
+[tr][td]Max slow blocks[/td][td]Hundreds possible[/td][td]1–2 before EDA[/td][/tr]
+[/table]
+
+[size=12pt][b]Difficulty Reset Mechanism[/b][/size]
+
+At height 4,726, a one-time difficulty reset occurred (DIFFICULTY_RESET_HEIGHT = 4726). The old SMA had 720 blocks of history at ~215 KH/s, while actual hashrate was ~1 KH/s. The reset prevented LWMA from looking back before the reset height. Difficulty dropped from 9.15M to ~68K within 60 blocks. Future fluctuations are handled entirely by LWMA-1 + EDA.
+
+[size=12pt][b]Solve Time Clamping[/b][/size]
+
+LWMA-1 clamps each solve time to [-6T, 6T] = [-720s, +720s], preventing future timestamp attacks, slow block exaggeration, and oscillation attacks.
+
+[hr]
+
+[size=16pt][b]7. Network Fees: Dynamic and Anti-Spam[/b][/size]
+
+[code]
+FEE_PER_KB = 0.01 NINA                   (static fee per kilobyte)
+FEE_PER_BYTE = 0.00001 NINA              (equivalent granular rate)
+DYNAMIC_FEE_PER_KB_BASE_FEE = 0.005 NINA (dynamic minimum floor)
+[/code]
+
+[b]Dynamic Fee Calculation:[/b]
+[list]
+[li]Static fee: fee_static = tx_weight × FEE_PER_BYTE[/li]
+[li]Dynamic fee: dynamic_fee = (0.95 × block_reward × 3000) / (median_weight²)[/li]
+[li]Final fee: fee_total = max(fee_static, dynamic_fee × tx_weight)[/li]
+[/list]
+
+[table]
+[tr][td][b]Scenario[/b][/td][td][b]Tx Size[/b][/td][td][b]Fee[/b][/td][/tr]
+[tr][td]Low congestion[/td][td]2 KB[/td][td]~0.02 NINA[/td][/tr]
+[tr][td]Moderate congestion[/td][td]2 KB[/td][td]~0.04 NINA[/td][/tr]
+[tr][td]High congestion[/td][td]2 KB[/td][td]~0.06 NINA[/td][/tr]
+[tr][td]Spam attack[/td][td]2 KB[/td][td]~0.50 NINA[/td][/tr]
+[/table]
+
+Blocks ≤ 300,000 bytes receive full reward. Larger blocks incur penalties, making spam unprofitable.
+
+[hr]
+
+[size=16pt][b]8. Privacy and Anonymity[/b][/size]
+
+[size=12pt][b]Ring Signatures[/b][/size]
+
+Every transaction uses [b]mandatory ring signatures[/b] — enforced at protocol level. The sender's real output is mixed with N-1 decoy outputs:
+
+[list]
+[li]Default ring size: [b]11[/b] (mixin 10) — 1 real + 10 decoys[/li]
+[li]Probability of guessing the real signer: ~9.1%[/li]
+[li]Future hard fork (v17) will increase to ring size [b]16[/b] once the blockchain matures[/li]
+[/list]
+
+Ring size 11 was chosen for the initial phase because a young blockchain has limited outputs available. Starting at 11 ensures strong privacy at every growth stage.
+
+[size=12pt][b]RingCT (Ring Confidential Transactions)[/b][/size]
+
+[list]
+[li][b]Pedersen Commitments:[/b] Amounts encrypted: C = aG + bH[/li]
+[li][b]Homomorphic property:[/b] Miners verify inputs = outputs without knowing amounts[/li]
+[li][b]Bulletproof+ range proofs:[/b] Compact proofs that amounts are non-negative[/li]
+[li]Enforced since hard fork v6[/li]
+[/list]
+
+[size=12pt][b]Stealth Addresses[/b][/size]
+
+Every transaction generates a unique, one-time address for the recipient. No two transactions ever send to the same on-chain address. An observer cannot link payments to a known public address.
+
+[size=12pt][b]Tor and I2P Integration[/b][/size]
+
+[list]
+[li]Nodes detect .onion and .b32.i2p addresses as anonymous endpoints[/li]
+[li][b]Dandelion++[/b] provides transaction propagation privacy: Stem phase (single peer forward) → Fluff phase (network broadcast)[/li]
+[li]Impossible to determine the originating node[/li]
+[/list]
+
+[table]
+[tr][td][b]Information[/b][/td][td][b]Hidden?[/b][/td][td][b]Mechanism[/b][/td][/tr]
+[tr][td]Sender identity[/td][td]Yes[/td][td]Ring signatures (11 decoys)[/td][/tr]
+[tr][td]Recipient identity[/td][td]Yes[/td][td]Stealth addresses[/td][/tr]
+[tr][td]Transaction amount[/td][td]Yes[/td][td]RingCT + Bulletproof+[/td][/tr]
+[tr][td]Transaction existence[/td][td]No[/td][td]Public ledger (by design)[/td][/tr]
+[tr][td]Sender IP address[/td][td]Yes (optional)[/td][td]Dandelion++ / Tor / I2P[/td][/tr]
+[/table]
+
+[hr]
+
+[size=16pt][b]9. Enhanced RandomX Mining[/b][/size]
+
+RandomX is activated at block height 3,000 (hard fork v16). Blocks 0–2,999 used CryptoNight. Ninacatcoin implements three improvements over standard RandomX:
+
+[size=12pt][b]Improvement 1: Shorter Epochs[/b][/size]
+
+[code]
+Monero:       SEEDHASH_EPOCH_BLOCKS = 2048 (68 hours)
+Ninacatcoin:  SEEDHASH_EPOCH_BLOCKS = 1024 (34 hours)
+[/code]
+
+More frequent seed changes make ASIC ROI mathematically impossible (design takes 6–12 months, seed changes every 34 hours).
+
+[size=12pt][b]Improvement 2: Variable Dataset[/b][/size]
+
+[code]
+dataset_size = min(2GB + (network_hashrate_TH_s × 10MB), 4GB)
+[/code]
+
+ASICs optimized for 2GB become suboptimal when the dataset grows. CPUs handle any dataset size transparently.
+
+[size=12pt][b]Improvement 3: Dual Mode with GPU Penalty[/b][/size]
+
+Every 5 blocks (20%), RandomX runs in "safe" mode (RANDOMX_FLAG_SECURE) with JIT disabled:
+
+[code]
+Block 0 (height % 5 == 0): GPU Penalty Mode (10x slower for GPUs)
+Blocks 1–4: Normal mode
+Average GPU efficiency: ~20% vs CPU baseline
+[/code]
+
+[size=12pt][b]CPU Mining: Democratic Access[/b][/size]
+
+RandomX uses only basic CPU instructions (integer arithmetic, L3 cache, memory latency). A used office computer from 2010 can mine profitably.
+
+[table]
+[tr][td][b]Hardware[/b][/td][td][b]Efficiency[/b][/td][td][b]Profitability[/b][/td][/tr]
+[tr][td]Modern CPU[/td][td]100% (baseline)[/td][td]Full[/td][/tr]
+[tr][td]Old CPU (2010+)[/td][td]30–60%[/td][td]Moderate[/td][/tr]
+[tr][td]GPU[/td][td]~20%[/td][td]Marginal[/td][/tr]
+[tr][td]FPGA[/td][td]~5%[/td][td]Unprofitable[/td][/tr]
+[tr][td]ASIC[/td][td]0%[/td][td]Impossible[/td][/tr]
+[/table]
+
+[hr]
+
+[size=16pt][b]10. Automatic Checkpoints: The Impossible Defense Against 51%[/b][/size]
+
+[size=12pt][b]Why Checkpoints Matter[/b][/size]
+
+A 51% attack rewrites blockchain history using majority hashrate. Checkpoints make it [b]cryptographically impossible[/b] to rewrite history, even with 100% of the hash power.
+
+[size=12pt][b]Checkpoint Architecture[/b][/size]
+
+A checkpoint is a pair (height, block_hash) that permanently locks a block. Once validated against a checkpoint, a block CANNOT be replaced.
+
+[list]
+[li][b]Checkpoint interval:[/b] 30 blocks = 3,600 seconds = 1 hour[/li]
+[li][b]Distribution:[/b] HTTPS + seed nodes[/li]
+[li][b]Generation:[/b] Fully automatic, no human involvement[/li]
+[/list]
+
+[size=12pt][b]Automatic Generation[/b][/size]
+
+Unlike Monero's manual checkpoints (updated every 6–12 months), Ninacatcoin generates checkpoints automatically:
+
+[list]
+[li]Total automation — no human intervention at any step[/li]
+[li]Continuous — 24/7, every 1 hour[/li]
+[li]No single point of failure — 3+ independent seed nodes[/li]
+[li]Decentralized — each seed generates independently[/li]
+[li]Fully auditable — open source code[/li]
+[/list]
+
+[size=12pt][b]Hybrid Distribution[/b][/size]
+
+[code]
+LAYER 1: HOSTING (CDN — Fast Access)
+├─ URL: https://ninacatcoin.es/checkpoints/
+├─ Content: Last 15 days of checkpoints
+├─ Update: Every 1 hour (automatic)
+└─ Purpose: Fast sync for new nodes
+
+LAYER 2: SEED NODES (Distributed Authority)
+├─ 3+ independent servers
+├─ Content: FULL HISTORY from genesis
+├─ Update: Every 1 hour (automatic)
+└─ Purpose: Backup, validation, redundancy
+[/code]
+
+[size=12pt][b]Why 51% and 100% Attacks Fail[/b][/size]
+
+[list]
+[li]Attacker's block hash ≠ checkpoint hash → rejected[/li]
+[li]Nodes contact hardcoded legitimate servers, never attacker's[/li]
+[li]3 independent seeds cannot all be compromised simultaneously[/li]
+[li]Open source — malicious recompilation is detectable[/li]
+[/list]
+
+[b]Formal proof:[/b] For the attack to succeed, the alternative chain R_A must match checkpoints. But checkpoints were generated from the honest chain R_H. So R_A = R_H at every checkpoint. Since blocks are chained, R_A = R_H everywhere. But then R_A IS R_H — not an alternative chain. Contradiction. QED.
+
+[size=12pt][b]Maximum Attack Window[/b][/size]
+
+Maximum 30 blocks (1 hour). Compare: Monero ~33 days, Bitcoin unlimited.
+
+[table]
+[tr][td][b]Feature[/b][/td][td][b]Ninacatcoin[/b][/td][td][b]Monero[/b][/td][td][b]Bitcoin[/b][/td][/tr]
+[tr][td]Checkpoint interval[/td][td]60 min[/td][td]~33 days[/td][td]None[/td][/tr]
+[tr][td]Checkpoint method[/td][td]Automatic[/td][td]Manual[/td][td]N/A[/td][/tr]
+[tr][td]Max reorg window[/td][td]30 blocks[/td][td]~33,000 blocks[/td][td]Unlimited[/td][/tr]
+[tr][td]51% resistance[/td][td]Impossible (>1h)[/td][td]Weak[/td][td]Vulnerable[/td][/tr]
+[/table]
+
+Ninacatcoin is approximately [b]720x more secure[/b] than Monero against reorg attacks.
+
+[hr]
+
+[size=16pt][b]11. Intelligent Detection and Auto-Repair System[/b][/size]
+
+Malware can modify checkpoint files after download. Ninacatcoin implements automatic detection and repair.
+
+[b]Four detection layers:[/b]
+
+[list]
+[li][b]Hash Format Validation:[/b] Each hash must be exactly 64 hex characters[/li]
+[li][b]Genesis Block Validation:[/b] Compared against hardcoded genesis hash[/li]
+[li][b]Epoch Validation:[/b] Monotonic epoch_id progression[/li]
+[li][b]Seed Node Cross-Reference:[/b] Validated against multiple independent seeds[/li]
+[/list]
+
+[b]FAIL-SAFE Pause Mode:[/b]
+When corruption is detected: Detect → Report → Pause → Retry every 30s → Auto-repair → Resume. [b]Zero manual intervention required.[/b]
+
+[table]
+[tr][td][b]Attack[/b][/td][td][b]Detection[/b][/td][td][b]Response[/b][/td][/tr]
+[tr][td]Malware modifies file[/td][td]Format validation[/td][td]PAUSE + auto-repair[/td][/tr]
+[tr][td]Replay attack[/td][td]epoch_id validation[/td][td]Reject + retry[/td][/tr]
+[tr][td]False genesis block[/td][td]Hardcoded comparison[/td][td]Immediate rejection[/td][/tr]
+[tr][td]Compromised seed[/td][td]Multi-seed consensus[/td][td]Use remaining seeds[/td][/tr]
+[tr][td]Network outage[/td][td]Retry loop[/td][td]Wait with existing data[/td][/tr]
+[/table]
+
+[hr]
+
+[size=16pt][b]12. Precomputed Block Hashes: checkpoints.dat[/b][/size]
+
+Complementary to JSON checkpoints, checkpoints.dat verifies [b]every block ever produced[/b] in groups of 512.
+
+[table]
+[tr][td][b]Feature[/b][/td][td][b]checkpoints.json[/b][/td][td][b]checkpoints.dat[/b][/td][/tr]
+[tr][td]Format[/td][td]Readable JSON[/td][td]Compact binary (Keccak-256)[/td][/tr]
+[tr][td]Granularity[/td][td]1 hash per hour[/td][td]ALL blocks (by 512)[/td][/tr]
+[tr][td]Protection[/td][td]Point checkpoints[/td][td]Complete chain verification[/td][/tr]
+[/table]
+
+[b]Binary Format:[/b]
+[code]
+[4 bytes]  ngroups (uint32 LE) = Number of groups of 512 blocks
+Per group (64 bytes):
+  [32 bytes] cn_fast_hash(block_hash_0 || ... || block_hash_511)
+  [32 bytes] cn_fast_hash(block_weight_0 || ... || block_weight_511)
+[/code]
+
+[b]Triple Protection Architecture:[/b]
+[code]
+LAYER 1: COMPILED (compile-time)
+├─ Hashes embedded in executable
+└─ Cannot be modified without recompiling
+
+LAYER 2: DOWNLOADED (runtime)
+├─ Updated from https://ninacatcoin.es at startup
+└─ Covers blocks mined after binary was compiled
+
+LAYER 3: P2P VERIFICATION (network)
+├─ Validated against blocks from peers
+└─ Compromised CDN cannot fool the network
+[/code]
+
+[hr]
+
+[size=16pt][b]13. Intelligent Validation Enhancements[/b][/size]
+
+[size=12pt][b]PHASE 1: Epoch-Based Validation[/b][/size]
+
+epoch_id prevents replay attacks. Metadata persists in .ninacatcoin_checkpoints_metadata.json. Requires ≥1/3 seed consensus.
+
+[size=12pt][b]PHASE 1.5: Tiered Ban System[/b][/size]
+
+[table]
+[tr][td][b]Level[/b][/td][td][b]Duration[/b][/td][td][b]Trigger[/b][/td][/tr]
+[tr][td]TEMP_1H[/td][td]1 hour[/td][td]First violation[/td][/tr]
+[tr][td]PERSISTENT_24H[/td][td]24 hours (saved to disk)[/td][td]Second violation[/td][/tr]
+[tr][td]PERMANENT[/td][td]Indefinite[/td][td]Third+ violation[/td][/tr]
+[/table]
+
+[size=12pt][b]PHASE 2: Peer Reputation System[/b][/size]
+
+Auditable ban reasons: HASH_MISMATCH, EPOCH_VIOLATION, REPLAY_ATTACK, INVALID_HEIGHT, SEED_MISMATCH. All logged in structured JSON with the OBSERVE_INVALID_CHECKPOINT protocol.
+
+[b]Defense in Depth — 5 Independent Layers:[/b]
+
+[table]
+[tr][td][b]Layer[/b][/td][td][b]Mechanism[/b][/td][td][b]Protection[/b][/td][/tr]
+[tr][td]1[/td][td]Proof-of-Work (RandomX)[/td][td]Requires >50% hashrate[/td][/tr]
+[tr][td]2[/td][td]Auto Checkpoints (60 min)[/td][td]History immutability[/td][/tr]
+[tr][td]3[/td][td]P2P Consensus (66%+)[/td][td]Immediate detection[/td][/tr]
+[tr][td]4[/td][td]Dynamic Reputation[/td][td]Incremental penalties[/td][/tr]
+[tr][td]5[/td][td]Auto Quarantine[/td][td]1–6h isolation[/td][/tr]
+[/table]
+
+An attacker must defeat ALL five simultaneously — no known attack has achieved even three.
+
+[hr]
+
+[size=16pt][b]14. Discord Bot: Real-Time Event Announcements[/b][/size]
+
+An automated Discord bot (discord_lottery_bot.py) provides real-time X2/X200 announcements.
+
+[list]
+[li][b]Automatic Event Detection:[/b] Monitors blockchain via JSON-RPC[/li]
+[li][b]Verifiable Announcements:[/b] Includes all data for independent verification[/li]
+[li][b]Historical Recovery:[/b] On restart, catches up from last recorded height[/li]
+[li][b]Anti-Redundancy:[/b] State persistence, reorg detection, SHA256 deduplication[/li]
+[/list]
+
+[b]Discord Channels:[/b]
+[list]
+[li]#x2-events — X2 multiplier events[/li]
+[li]#x200-events — X200 multiplier events (rare)[/li]
+[li]#block-updates — General block information[/li]
+[/list]
+
+Source code is publicly available for auditing.
+
+[hr]
+
+[size=16pt][b]15. Block Explorer: Total Blockchain Transparency[/b][/size]
+
+The Ninacatcoin Block Explorer ([url=https://niachain.ninacatcoin.es/]https://niachain.ninacatcoin.es/[/url]) provides public access to all blockchain information.
+
+[b]Capabilities:[/b] Real-time blocks, transaction verification, network metrics, X2/X200 validation, emission tracking.
+
+[b]Privacy vs. Transparency:[/b]
+
+[table]
+[tr][td][b]Data[/b][/td][td][b]Visible?[/b][/td][td][b]Why?[/b][/td][/tr]
+[tr][td]Block exists[/td][td]Yes[/td][td]Public ledger[/td][/tr]
+[tr][td]Transaction amount[/td][td][b]No[/b][/td][td]RingCT[/td][/tr]
+[tr][td]Sender[/td][td][b]No[/b][/td][td]Ring signatures[/td][/tr]
+[tr][td]Recipient[/td][td][b]No[/b][/td][td]Stealth addresses[/td][/tr]
+[tr][td]Fees[/td][td]Yes[/td][td]Miner auditing[/td][/tr]
+[/table]
+
+[b]Tech Stack:[/b] Node.js + Express.js backend, React.js + Tailwind CSS frontend, Redis cache, HTTPS with CDN. 99.9% uptime.
+
+[hr]
+
+[size=16pt][b]16. Technical Architecture[/b][/size]
+
+[b]Core Components:[/b]
+[list]
+[li][b]ninacatcoind[/b] — Full node (validates chain, mempool, P2P, JSON-RPC)[/li]
+[li][b]ninacatcoin-wallet-cli[/b] — Command-line wallet[/li]
+[li][b]ninacatcoin-wallet-rpc[/b] — JSON-RPC wallet for applications[/li]
+[/list]
+
+[b]Network Configuration:[/b]
+[code]
+P2P Port:     19080
+RPC Port:     19081
+ZMQ Port:     19082
+Data Dir:     ~/.ninacatcoin/
+[/code]
+
+[b]Build Dependencies:[/b]
+[code]
+cmake 3.8+, C++17 compiler (gcc 7+ / clang 5+)
+Boost >= 1.66, OpenSSL 1.1.1+, libsodium, libzmq, libunbound
+[/code]
+
+[b]Hard Fork Schedule:[/b]
+
+[table]
+[tr][td][b]Version[/b][/td][td][b]Height[/b][/td][td][b]Features[/b][/td][/tr]
+[tr][td]v1[/td][td]1[/td][td]Genesis — CryptoNight PoW[/td][/tr]
+[tr][td]v16[/td][td]3,000[/td][td]RandomX, RingCT, CLSAG, Bulletproof+, View Tags[/td][/tr]
+[tr][td]v17[/td][td]TBD[/td][td]Ring size increase to 16[/td][/tr]
+[/table]
+
+[b]Build Security:[/b] ASLR (-fPIE), Stack protector (-fstack-protector-strong), CFI (-fcf-protection), Fortify source (-D_FORTIFY_SOURCE=2), Non-executable stack (-z noexecstack).
+
+[b]Test Suite:[/b] Unit tests, core blockchain tests, functional end-to-end tests, fuzz testing.
+
+[hr]
+
+[size=16pt][b]17. Roadmap and Future Development[/b][/size]
+
+[b]Near-Term (2026):[/b]
+[list]
+[li]Hard fork v17: Ring size 11 → 16[/li]
+[li]Mobile wallet (Android/iOS)[/li]
+[li]Open-source mining pool software[/li]
+[/list]
+
+[b]Medium-Term (2026–2027):[/b]
+[list]
+[li]Atomic swaps: BTC↔NINA, XMR↔NINA[/li]
+[li]Payment processor SDK for merchants[/li]
+[li]Enhanced block explorer analytics[/li]
+[/list]
+
+[b]Long-Term Vision:[/b]
+[list]
+[li]Full Tor integration by default[/li]
+[li]Layer 2 payment channels[/li]
+[li]Continued ASIC resistance monitoring[/li]
+[/list]
+
+[hr]
+
+[size=16pt][b]Summary: Why Ninacatcoin[/b][/size]
+
+[table]
+[tr][td][b]Feature[/b][/td][td][b]Ninacatcoin[/b][/td][td][b]Monero[/b][/td][td][b]Bitcoin[/b][/td][/tr]
+[tr][td]Privacy[/td][td]RingCT + Ring Sig + Stealth[/td][td]RingCT + Ring Sig + Stealth[/td][td]Pseudonymous only[/td][/tr]
+[tr][td]51% Defense[/td][td]60-min auto checkpoints[/td][td]~33-day manual[/td][td]None[/td][/tr]
+[tr][td]Difficulty[/td][td]LWMA-1 (60 blocks) + EDA[/td][td]SMA (720 blocks)[/td][td]Bitcoin DA (2,016)[/td][/tr]
+[tr][td]Hashrate drop reaction[/td][td]1–2 blocks (EDA)[/td][td]Hundreds of blocks[/td][td]~2 weeks[/td][/tr]
+[tr][td]Mining[/td][td]CPU-first, GPU penalized[/td][td]CPU-first[/td][td]ASIC-only[/td][/tr]
+[tr][td]Bonus events[/td][td]X2 (183/yr), X200 (6/yr)[/td][td]None[/td][td]None[/td][/tr]
+[tr][td]Checkpoint repair[/td][td]Automatic[/td][td]Manual[/td][td]N/A[/td][/tr]
+[tr][td]ASIC resistance[/td][td]Triple defense[/td][td]Single (RandomX)[/td][td]None[/td][/tr]
+[tr][td]Ring size[/td][td]11 (→16 at v17)[/td][td]16[/td][td]N/A[/td][/tr]
+[tr][td]Block time[/td][td]120s[/td][td]120s[/td][td]600s[/td][/tr]
+[tr][td]Max supply[/td][td]900M NINA[/td][td]18.4M XMR + tail[/td][td]21M BTC[/td][/tr]
+[/table]
+
+[hr]
+
+[size=12pt][b]License and Credits[/b][/size]
+
+Ninacatcoin is released under the [b]BSD 3-Clause License[/b]. It builds upon the work of The Monero Project, CryptoNote, RandomX (tevador), and LWMA-1 (zawy12).
+
+[hr]
+
+[i]For developers and users who value true privacy, transparent emission, and decentralized security, [b]Ninacatcoin[/b] is a clear and compelling choice.[/i]
+
+[i]In memory of Nina (25/05/2014 – 16/02/2019) — generous, kind, and unforgettable. Your kindness lives on in every block.[/i]
