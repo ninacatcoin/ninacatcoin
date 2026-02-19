@@ -1436,6 +1436,26 @@ namespace cryptonote
     bool prevalidate_miner_transaction(const block& b, uint64_t height, uint8_t hf_version);
 
     /**
+     * @brief calculate current network hashrate from recent difficulties
+     * 
+     * Helper for PHASE 2 difficulty optimization
+     * 
+     * @param difficulties recent block difficulties
+     * @return estimated hashrate in hashes/second
+     */
+    double calculate_current_hashrate(const std::vector<difficulty_type>& difficulties) const;
+
+    /**
+     * @brief calculate hashrate trend percentage
+     * 
+     * Helper for PHASE 2 difficulty optimization
+     * 
+     * @param difficulties recent block difficulties  
+     * @return trend as percentage change from earlier average
+     */
+    double calculate_hashrate_trend(const std::vector<difficulty_type>& difficulties) const;
+
+    /**
      * @brief validates a miner (coinbase) transaction
      *
      * This function makes sure that the miner calculated his reward correctly

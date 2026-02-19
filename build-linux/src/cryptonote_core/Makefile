@@ -199,6 +199,30 @@ cryptonote_core/fast:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/cryptonote_core/CMakeFiles/cryptonote_core.dir/build.make src/cryptonote_core/CMakeFiles/cryptonote_core.dir/build
 .PHONY : cryptonote_core/fast
 
+__/daemon/nina_ml_client.o: __/daemon/nina_ml_client.cpp.o
+.PHONY : __/daemon/nina_ml_client.o
+
+# target to build an object file
+__/daemon/nina_ml_client.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/build.make src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/__/daemon/nina_ml_client.cpp.o
+.PHONY : __/daemon/nina_ml_client.cpp.o
+
+__/daemon/nina_ml_client.i: __/daemon/nina_ml_client.cpp.i
+.PHONY : __/daemon/nina_ml_client.i
+
+# target to preprocess a source file
+__/daemon/nina_ml_client.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/build.make src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/__/daemon/nina_ml_client.cpp.i
+.PHONY : __/daemon/nina_ml_client.cpp.i
+
+__/daemon/nina_ml_client.s: __/daemon/nina_ml_client.cpp.s
+.PHONY : __/daemon/nina_ml_client.s
+
+# target to generate assembly for a file
+__/daemon/nina_ml_client.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/build.make src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/__/daemon/nina_ml_client.cpp.s
+.PHONY : __/daemon/nina_ml_client.cpp.s
+
 blockchain.o: blockchain.cpp.o
 .PHONY : blockchain.o
 
@@ -358,6 +382,9 @@ help:
 	@echo "... test"
 	@echo "... cryptonote_core"
 	@echo "... obj_cryptonote_core"
+	@echo "... __/daemon/nina_ml_client.o"
+	@echo "... __/daemon/nina_ml_client.i"
+	@echo "... __/daemon/nina_ml_client.s"
 	@echo "... blockchain.o"
 	@echo "... blockchain.i"
 	@echo "... blockchain.s"

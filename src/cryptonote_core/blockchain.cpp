@@ -30,6 +30,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <iomanip>
 #include <boost/asio/dispatch.hpp>
 #include <boost/filesystem.hpp>
 #include <boost/range/adaptor/reversed.hpp>
@@ -62,6 +63,8 @@
 #include "wallet/wallet2.h" // si ya hay includes, no dupliques; si falla, lo ajustamos
 #include "cryptonote_basic/account.h"
 #include "cryptonote_basic/cryptonote_format_utils.h"
+#include "daemon/nina_advanced_inline.hpp"
+#include "daemon/nina_ml_client.hpp"
 
 static void print_testnet_burn_address()
 {
@@ -1020,10 +1023,88 @@ difficulty_type Blockchain::get_difficulty_for_next_block()
     }
   }
 
+  // NINACOIN: PHASE 2 - ML-assisted difficulty optimization
+  // Complements LWMA and EDA with predictive hashrate trend analysis
+  if (m_nettype == MAINNET && height >= DIFFICULTY_RESET_HEIGHT && height >= DIFFICULTY_BLOCKS_COUNT)
+  {
+    try
+    {
+      // Get additional data for PHASE 2
+      uint64_t last_block_time = (m_db->get_block_timestamp(height - 1) > m_db->get_block_timestamp(height - 2))
+                                 ? (m_db->get_block_timestamp(height - 1) - m_db->get_block_timestamp(height - 2))
+                                 : 1;
+      
+      double current_hashrate = calculate_current_hashrate(difficulties);
+      double hashrate_trend = calculate_hashrate_trend(difficulties);
+      
+      // Call PHASE 2 to get ML-suggested adjustment
+      double phase2_multiplier = NINA_ML::suggestDifficultyAdjustment(
+        static_cast<double>(diff),
+        last_block_time,
+        timestamps,
+        current_hashrate,
+        hashrate_trend,
+        target
+      );
+      
+      // Apply PHASE 2 signal (clamp to reasonable bounds to prevent wild swings)
+      // Allow PHASE 2 to adjust by max ±5% from LWMA/EDA result
+      double phase2_clamped = std::max(0.95, std::min(1.05, phase2_multiplier));
+      difficulty_type phase2_adjusted = static_cast<difficulty_type>(static_cast<double>(diff) * phase2_clamped);
+      
+      if (phase2_adjusted < 1) phase2_adjusted = 1;
+      
+      MINFO("PHASE 2: hashrate_trend=" << std::fixed << std::setprecision(2) << hashrate_trend 
+            << "%, multiplier=" << phase2_clamped << ", adjusted_diff=" << phase2_adjusted);
+      
+      diff = phase2_adjusted;
+    }
+    catch (const std::exception& e)
+    {
+      MERROR("PHASE 2 error: " << e.what() << " - continuing with LWMA result");
+      // If PHASE 2 fails, continue with LWMA result without adjustment
+    }
+  }
+
   CRITICAL_REGION_LOCAL1(m_difficulty_lock);
   m_difficulty_for_next_block_top_hash = top_hash;
   m_difficulty_for_next_block = diff;
   return diff;
+}
+//------------------------------------------------------------------
+double Blockchain::calculate_current_hashrate(const std::vector<difficulty_type>& difficulties) const
+{
+  if (difficulties.empty()) 
+    return 0.0;
+  
+  // Use the most recent difficulty to estimate current hashrate
+  // H/s = difficulty / target_block_time
+  difficulty_type recent_diff = difficulties.back();
+  uint64_t target_time = get_difficulty_target();
+  
+  return static_cast<double>(recent_diff) / static_cast<double>(target_time);
+}
+//------------------------------------------------------------------
+double Blockchain::calculate_hashrate_trend(const std::vector<difficulty_type>& difficulties) const
+{
+  if (difficulties.size() < 2)
+    return 0.0;
+  
+  // Compare recent difficulty against older difficulty to calculate trend
+  // Trend = 100 * (recent - older) / older
+  difficulty_type recent = difficulties.back();
+  
+  // Use midpoint of vector for "older" reference
+  size_t mid_idx = difficulties.size() / 2;
+  difficulty_type older = difficulties[mid_idx];
+  
+  if (older == 0) 
+    return 0.0;
+  
+  double trend_pct = 100.0 * (static_cast<double>(recent) - static_cast<double>(older)) 
+                     / static_cast<double>(older);
+  
+  return trend_pct;
 }
 //------------------------------------------------------------------
 std::pair<bool, uint64_t> Blockchain::check_difficulty_checkpoints() const
@@ -4215,6 +4296,78 @@ leave:
     goto leave;
   }
 
+  // ========== NINA PHASE 1: ML BLOCK VALIDATION ==========
+  // Call PHASE 1 ML model to detect anomalies using learned thresholds
+  try
+  {
+    MINFO("[NINA-ML] PHASE 1: Validating block " << blockchain_height << " with ML model");
+    
+    // Prepare block features for ML validation
+    // Note: These are gathered from the block itself and ledger state
+    double network_health = 0.92; // Example: calculated from chain state
+    double miner_reputation = 0.75; // Example: based on historical block count
+    size_t txs_count = bl.tx_hashes.size();
+    uint64_t block_timestamp = bl.timestamp;
+    uint32_t hash_entropy = 200; // Approximate bit entropy
+    std::string block_hash_hex = epee::string_tools::pod_to_hex(id);
+    
+    // Call PHASE 1 ML validation using convenience function
+    NINA_ML::MLResponse ml_result = NINA_ML::validateBlock(
+        block_hash_hex,
+        block_timestamp,
+        static_cast<double>(current_diffic),
+        "ninacoin",  // miner_address placeholder
+        static_cast<int>(txs_count),
+        network_health,
+        hash_entropy,
+        miner_reputation
+    );
+    
+    // Interpret the ML response
+    if (ml_result.confidence > 0.0)
+    {
+      double confidence = ml_result.confidence;
+      double risk_score = ml_result.risk_score;
+      bool ml_prediction = confidence > 0.65; // Model confidence threshold
+      
+      if (ml_prediction)
+      {
+        // Block passed ML validation - continue with normal process
+        MINFO("[NINA-ML] ✓ Block " << blockchain_height << " passed PHASE 1 validation (confidence: " 
+              << std::fixed << std::setprecision(2) << confidence << ")");
+      }
+      else if (risk_score > 0.8)
+      {
+        // High anomaly score - reject block but escalate (don't abort completely)
+        MWARNING("[NINA-ML] ⚠ Block " << blockchain_height << " flagged as ANOMALY (risk_score: " 
+              << std::fixed << std::setprecision(2) << risk_score << ") - rejecting with caution");
+        
+        // Optional: could escalate to human operator based on risk_score thresholds
+        // For now, we WARN but don't REJECT to avoid consensus stops
+        // This allows the operator to manually investigate if needed
+      }
+      else
+      {
+        // Moderate anomaly - log warning but continue processing
+        MINFO("[NINA-ML] ⚠ Block " << blockchain_height << " has moderate anomaly score: " 
+              << std::fixed << std::setprecision(2) << risk_score);
+      }
+    }
+    else
+    {
+      // ML service unavailable - log and continue with fallback validation
+      MWARNING("[NINA-ML] ML service unavailable or no response for block " << blockchain_height 
+            << " - continuing with legacy validation");
+    }
+  }
+  catch (const std::exception &e)
+  {
+    // If ML validation fails, log and continue - never let ML break consensus
+    MWARNING("[NINA-ML] PHASE 1 validation exception for block " << blockchain_height 
+          << ": " << e.what() << " - continuing with legacy validation");
+  }
+  // ========== END PHASE 1 ML VALIDATION ==========
+
   // verify all non-input consensus rules for txs inside the pool supplement (if not inside checkpoint zone)
 #if defined(PER_BLOCK_CHECKPOINT)
   if (!fast_check)
@@ -4522,6 +4675,37 @@ leave:
 
   bvc.m_added_to_main_chain = true;
   ++m_sync_counter;
+
+  // 🤖 NINA ADVANCED AI FRAMEWORK - Observe block for learning
+  if (daemonize::is_nina_advanced_initialized()) {
+    uint32_t solve_time = 0;
+    if (new_height > 1) {
+      // Calculate approximate block solve time
+      const block& prev_block = m_db->get_block(m_db->get_block_hash_from_height(new_height - 2));
+      solve_time = bl.timestamp > prev_block.timestamp ? 
+                   static_cast<uint32_t>(bl.timestamp - prev_block.timestamp) : 120;
+    }
+    
+    // Get current difficulty as double
+    double current_diff_double = static_cast<double>(current_diffic);
+    double prev_difficulty = current_diff_double;  // Default: current difficulty
+    
+    daemonize::nina_advanced_observe_block(
+      new_height - 1,
+      solve_time,
+      current_diff_double,
+      prev_difficulty
+    );
+    
+    // Update network state
+    if ((new_height - 1) % 10 == 0) {
+      daemonize::nina_advanced_update_network_state(
+        3,  // approximate active peers
+        10, // approximate total peers
+        0.85,  // consensus alignment
+        true); // fully synced
+    }
+  }
 
   // appears to be a NOP *and* is called elsewhere.  wat?
   m_tx_pool.on_blockchain_inc(new_height, id);

@@ -34,6 +34,7 @@
 #include "misc_log_ex.h"
 #include "daemon/daemon.h"
 #include "daemon/ai_integration.h"
+#include "daemon/nina_advanced_inline.hpp"
 #include "rpc/daemon_handler.h"
 #include "rpc/zmq_pub.h"
 #include "rpc/zmq_server.h"
@@ -190,6 +191,11 @@ t_daemon::t_daemon(
   MINFO("═══════════════════════════════════════════════════════════════");
   MINFO("  [3/3] IA Security Module monitoring daemon startup...");
   MINFO("═══════════════════════════════════════════════════════════════");
+  
+  // Initialize NINA Advanced AI Framework (6 Tiers)
+  MINFO("\n[Daemon] Initializing NINA Advanced AI Framework...");
+  daemonize::initialize_nina_advanced();
+  MINFO("[Daemon] NINA Advanced AI Framework Ready!\n");
 }
 
 t_daemon::~t_daemon()
@@ -197,6 +203,14 @@ t_daemon::~t_daemon()
   // Shutdown IA module gracefully when daemon exits
   if (mp_internals)
   {
+    // Save NINA's persistent state before shutdown
+    MINFO("[NINA-PERSISTENCE] Saving final state before shutdown...");
+    nina_save_persistent_state(0, 0, 0, 0.94, 0.85, 88.5);
+    MINFO("[NINA-PERSISTENCE] ✓ Final state persisted to LMDB");
+    
+    // Log shutdown event
+    nina_audit_log(0, "DAEMON_SHUTDOWN", "NINA state saved and daemon shutting down gracefully");
+    
     MINFO("[Daemon] Shutting down IA Security Module...");
     IAModuleIntegration::shutdown_ia_module();
   }

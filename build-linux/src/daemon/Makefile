@@ -353,6 +353,318 @@ main.cpp.s:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/main.cpp.s
 .PHONY : main.cpp.s
 
+nina_adaptive_learning.o: nina_adaptive_learning.cpp.o
+.PHONY : nina_adaptive_learning.o
+
+# target to build an object file
+nina_adaptive_learning.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_adaptive_learning.cpp.o
+.PHONY : nina_adaptive_learning.cpp.o
+
+nina_adaptive_learning.i: nina_adaptive_learning.cpp.i
+.PHONY : nina_adaptive_learning.i
+
+# target to preprocess a source file
+nina_adaptive_learning.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_adaptive_learning.cpp.i
+.PHONY : nina_adaptive_learning.cpp.i
+
+nina_adaptive_learning.s: nina_adaptive_learning.cpp.s
+.PHONY : nina_adaptive_learning.s
+
+# target to generate assembly for a file
+nina_adaptive_learning.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_adaptive_learning.cpp.s
+.PHONY : nina_adaptive_learning.cpp.s
+
+nina_complete_evolution.o: nina_complete_evolution.cpp.o
+.PHONY : nina_complete_evolution.o
+
+# target to build an object file
+nina_complete_evolution.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_complete_evolution.cpp.o
+.PHONY : nina_complete_evolution.cpp.o
+
+nina_complete_evolution.i: nina_complete_evolution.cpp.i
+.PHONY : nina_complete_evolution.i
+
+# target to preprocess a source file
+nina_complete_evolution.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_complete_evolution.cpp.i
+.PHONY : nina_complete_evolution.cpp.i
+
+nina_complete_evolution.s: nina_complete_evolution.cpp.s
+.PHONY : nina_complete_evolution.s
+
+# target to generate assembly for a file
+nina_complete_evolution.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_complete_evolution.cpp.s
+.PHONY : nina_complete_evolution.cpp.s
+
+nina_consensus_tuner.o: nina_consensus_tuner.cpp.o
+.PHONY : nina_consensus_tuner.o
+
+# target to build an object file
+nina_consensus_tuner.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_consensus_tuner.cpp.o
+.PHONY : nina_consensus_tuner.cpp.o
+
+nina_consensus_tuner.i: nina_consensus_tuner.cpp.i
+.PHONY : nina_consensus_tuner.i
+
+# target to preprocess a source file
+nina_consensus_tuner.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_consensus_tuner.cpp.i
+.PHONY : nina_consensus_tuner.cpp.i
+
+nina_consensus_tuner.s: nina_consensus_tuner.cpp.s
+.PHONY : nina_consensus_tuner.s
+
+# target to generate assembly for a file
+nina_consensus_tuner.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_consensus_tuner.cpp.s
+.PHONY : nina_consensus_tuner.cpp.s
+
+nina_constitution.o: nina_constitution.cpp.o
+.PHONY : nina_constitution.o
+
+# target to build an object file
+nina_constitution.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_constitution.cpp.o
+.PHONY : nina_constitution.cpp.o
+
+nina_constitution.i: nina_constitution.cpp.i
+.PHONY : nina_constitution.i
+
+# target to preprocess a source file
+nina_constitution.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_constitution.cpp.i
+.PHONY : nina_constitution.cpp.i
+
+nina_constitution.s: nina_constitution.cpp.s
+.PHONY : nina_constitution.s
+
+# target to generate assembly for a file
+nina_constitution.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_constitution.cpp.s
+.PHONY : nina_constitution.cpp.s
+
+nina_explanation_engine.o: nina_explanation_engine.cpp.o
+.PHONY : nina_explanation_engine.o
+
+# target to build an object file
+nina_explanation_engine.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_explanation_engine.cpp.o
+.PHONY : nina_explanation_engine.cpp.o
+
+nina_explanation_engine.i: nina_explanation_engine.cpp.i
+.PHONY : nina_explanation_engine.i
+
+# target to preprocess a source file
+nina_explanation_engine.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_explanation_engine.cpp.i
+.PHONY : nina_explanation_engine.cpp.i
+
+nina_explanation_engine.s: nina_explanation_engine.cpp.s
+.PHONY : nina_explanation_engine.s
+
+# target to generate assembly for a file
+nina_explanation_engine.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_explanation_engine.cpp.s
+.PHONY : nina_explanation_engine.cpp.s
+
+nina_governance_engine.o: nina_governance_engine.cpp.o
+.PHONY : nina_governance_engine.o
+
+# target to build an object file
+nina_governance_engine.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_governance_engine.cpp.o
+.PHONY : nina_governance_engine.cpp.o
+
+nina_governance_engine.i: nina_governance_engine.cpp.i
+.PHONY : nina_governance_engine.i
+
+# target to preprocess a source file
+nina_governance_engine.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_governance_engine.cpp.i
+.PHONY : nina_governance_engine.cpp.i
+
+nina_governance_engine.s: nina_governance_engine.cpp.s
+.PHONY : nina_governance_engine.s
+
+# target to generate assembly for a file
+nina_governance_engine.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_governance_engine.cpp.s
+.PHONY : nina_governance_engine.cpp.s
+
+nina_human_collaboration.o: nina_human_collaboration.cpp.o
+.PHONY : nina_human_collaboration.o
+
+# target to build an object file
+nina_human_collaboration.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_human_collaboration.cpp.o
+.PHONY : nina_human_collaboration.cpp.o
+
+nina_human_collaboration.i: nina_human_collaboration.cpp.i
+.PHONY : nina_human_collaboration.i
+
+# target to preprocess a source file
+nina_human_collaboration.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_human_collaboration.cpp.i
+.PHONY : nina_human_collaboration.cpp.i
+
+nina_human_collaboration.s: nina_human_collaboration.cpp.s
+.PHONY : nina_human_collaboration.s
+
+# target to generate assembly for a file
+nina_human_collaboration.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_human_collaboration.cpp.s
+.PHONY : nina_human_collaboration.cpp.s
+
+nina_learning_module.o: nina_learning_module.cpp.o
+.PHONY : nina_learning_module.o
+
+# target to build an object file
+nina_learning_module.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_learning_module.cpp.o
+.PHONY : nina_learning_module.cpp.o
+
+nina_learning_module.i: nina_learning_module.cpp.i
+.PHONY : nina_learning_module.i
+
+# target to preprocess a source file
+nina_learning_module.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_learning_module.cpp.i
+.PHONY : nina_learning_module.cpp.i
+
+nina_learning_module.s: nina_learning_module.cpp.s
+.PHONY : nina_learning_module.s
+
+# target to generate assembly for a file
+nina_learning_module.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_learning_module.cpp.s
+.PHONY : nina_learning_module.cpp.s
+
+nina_memory_system.o: nina_memory_system.cpp.o
+.PHONY : nina_memory_system.o
+
+# target to build an object file
+nina_memory_system.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_memory_system.cpp.o
+.PHONY : nina_memory_system.cpp.o
+
+nina_memory_system.i: nina_memory_system.cpp.i
+.PHONY : nina_memory_system.i
+
+# target to preprocess a source file
+nina_memory_system.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_memory_system.cpp.i
+.PHONY : nina_memory_system.cpp.i
+
+nina_memory_system.s: nina_memory_system.cpp.s
+.PHONY : nina_memory_system.s
+
+# target to generate assembly for a file
+nina_memory_system.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_memory_system.cpp.s
+.PHONY : nina_memory_system.cpp.s
+
+nina_network_health_monitor.o: nina_network_health_monitor.cpp.o
+.PHONY : nina_network_health_monitor.o
+
+# target to build an object file
+nina_network_health_monitor.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_network_health_monitor.cpp.o
+.PHONY : nina_network_health_monitor.cpp.o
+
+nina_network_health_monitor.i: nina_network_health_monitor.cpp.i
+.PHONY : nina_network_health_monitor.i
+
+# target to preprocess a source file
+nina_network_health_monitor.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_network_health_monitor.cpp.i
+.PHONY : nina_network_health_monitor.cpp.i
+
+nina_network_health_monitor.s: nina_network_health_monitor.cpp.s
+.PHONY : nina_network_health_monitor.s
+
+# target to generate assembly for a file
+nina_network_health_monitor.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_network_health_monitor.cpp.s
+.PHONY : nina_network_health_monitor.cpp.s
+
+nina_parameter_adjustor.o: nina_parameter_adjustor.cpp.o
+.PHONY : nina_parameter_adjustor.o
+
+# target to build an object file
+nina_parameter_adjustor.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_parameter_adjustor.cpp.o
+.PHONY : nina_parameter_adjustor.cpp.o
+
+nina_parameter_adjustor.i: nina_parameter_adjustor.cpp.i
+.PHONY : nina_parameter_adjustor.i
+
+# target to preprocess a source file
+nina_parameter_adjustor.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_parameter_adjustor.cpp.i
+.PHONY : nina_parameter_adjustor.cpp.i
+
+nina_parameter_adjustor.s: nina_parameter_adjustor.cpp.s
+.PHONY : nina_parameter_adjustor.s
+
+# target to generate assembly for a file
+nina_parameter_adjustor.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_parameter_adjustor.cpp.s
+.PHONY : nina_parameter_adjustor.cpp.s
+
+nina_persistence_engine.o: nina_persistence_engine.cpp.o
+.PHONY : nina_persistence_engine.o
+
+# target to build an object file
+nina_persistence_engine.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_persistence_engine.cpp.o
+.PHONY : nina_persistence_engine.cpp.o
+
+nina_persistence_engine.i: nina_persistence_engine.cpp.i
+.PHONY : nina_persistence_engine.i
+
+# target to preprocess a source file
+nina_persistence_engine.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_persistence_engine.cpp.i
+.PHONY : nina_persistence_engine.cpp.i
+
+nina_persistence_engine.s: nina_persistence_engine.cpp.s
+.PHONY : nina_persistence_engine.s
+
+# target to generate assembly for a file
+nina_persistence_engine.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_persistence_engine.cpp.s
+.PHONY : nina_persistence_engine.cpp.s
+
+nina_suggestion_engine.o: nina_suggestion_engine.cpp.o
+.PHONY : nina_suggestion_engine.o
+
+# target to build an object file
+nina_suggestion_engine.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_suggestion_engine.cpp.o
+.PHONY : nina_suggestion_engine.cpp.o
+
+nina_suggestion_engine.i: nina_suggestion_engine.cpp.i
+.PHONY : nina_suggestion_engine.i
+
+# target to preprocess a source file
+nina_suggestion_engine.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_suggestion_engine.cpp.i
+.PHONY : nina_suggestion_engine.cpp.i
+
+nina_suggestion_engine.s: nina_suggestion_engine.cpp.s
+.PHONY : nina_suggestion_engine.s
+
+# target to generate assembly for a file
+nina_suggestion_engine.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/daemon/CMakeFiles/daemon.dir/build.make src/daemon/CMakeFiles/daemon.dir/nina_suggestion_engine.cpp.s
+.PHONY : nina_suggestion_engine.cpp.s
+
 rpc_command_executor.o: rpc_command_executor.cpp.o
 .PHONY : rpc_command_executor.o
 
@@ -412,6 +724,45 @@ help:
 	@echo "... main.o"
 	@echo "... main.i"
 	@echo "... main.s"
+	@echo "... nina_adaptive_learning.o"
+	@echo "... nina_adaptive_learning.i"
+	@echo "... nina_adaptive_learning.s"
+	@echo "... nina_complete_evolution.o"
+	@echo "... nina_complete_evolution.i"
+	@echo "... nina_complete_evolution.s"
+	@echo "... nina_consensus_tuner.o"
+	@echo "... nina_consensus_tuner.i"
+	@echo "... nina_consensus_tuner.s"
+	@echo "... nina_constitution.o"
+	@echo "... nina_constitution.i"
+	@echo "... nina_constitution.s"
+	@echo "... nina_explanation_engine.o"
+	@echo "... nina_explanation_engine.i"
+	@echo "... nina_explanation_engine.s"
+	@echo "... nina_governance_engine.o"
+	@echo "... nina_governance_engine.i"
+	@echo "... nina_governance_engine.s"
+	@echo "... nina_human_collaboration.o"
+	@echo "... nina_human_collaboration.i"
+	@echo "... nina_human_collaboration.s"
+	@echo "... nina_learning_module.o"
+	@echo "... nina_learning_module.i"
+	@echo "... nina_learning_module.s"
+	@echo "... nina_memory_system.o"
+	@echo "... nina_memory_system.i"
+	@echo "... nina_memory_system.s"
+	@echo "... nina_network_health_monitor.o"
+	@echo "... nina_network_health_monitor.i"
+	@echo "... nina_network_health_monitor.s"
+	@echo "... nina_parameter_adjustor.o"
+	@echo "... nina_parameter_adjustor.i"
+	@echo "... nina_parameter_adjustor.s"
+	@echo "... nina_persistence_engine.o"
+	@echo "... nina_persistence_engine.i"
+	@echo "... nina_persistence_engine.s"
+	@echo "... nina_suggestion_engine.o"
+	@echo "... nina_suggestion_engine.i"
+	@echo "... nina_suggestion_engine.s"
 	@echo "... rpc_command_executor.o"
 	@echo "... rpc_command_executor.i"
 	@echo "... rpc_command_executor.s"
