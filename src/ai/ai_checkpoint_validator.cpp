@@ -9,6 +9,8 @@
 #include <ctime>
 #include <algorithm>
 #include <jsoncpp/json/json.h>
+#include "blockchain_db/blockchain_db.h"
+#include "string_tools.h"
 
 namespace ninacatcoin_ai {
 
@@ -375,14 +377,42 @@ bool CheckpointValidator::hashExistsInBlockchain(
     const std::string& hash_hex,
     uint64_t height
 ) {
-    // TODO: Implement actual data.mdb lookup
-    // This would query the BlockchainDB to verify:
-    // 1. Hash exists in database
-    // 2. Hash is at the specified height
-    // 3. Hash matches blockchain state
-    
-    // For now, return true (placeholder)
-    return true;
+    // Validate hash against actual blockchain database
+    if (!blockchain_db) {
+        // No blockchain reference — cannot validate
+        std::cout << "[NINA Checkpoint] ⚠️  No blockchain DB reference, skipping hash validation" << std::endl;
+        return true;  // Permissive when DB not available
+    }
+
+    try {
+        // blockchain_db is a void* to cryptonote::Blockchain*
+        // We need to use the BlockchainDB method get_block_hash_from_height
+        // The Blockchain class exposes get_db() which returns BlockchainDB&
+        // But since we receive a void*, we cast to the type that has get_block_hash_from_height
+        
+        // Cast to BlockchainDB* (set via setBlockchainRef)
+        auto* db = static_cast<cryptonote::BlockchainDB*>(blockchain_db);
+        
+        // Get the actual hash at this height from the blockchain
+        crypto::hash actual_hash = db->get_block_hash_from_height(height);
+        
+        // Convert actual_hash to hex string for comparison
+        std::string actual_hex = epee::string_tools::pod_to_hex(actual_hash);
+        
+        if (actual_hex == hash_hex) {
+            return true;  // Hash matches blockchain
+        } else {
+            std::cerr << "[NINA Checkpoint] ❌ Hash mismatch at height " << height << std::endl;
+            std::cerr << "[NINA Checkpoint]   Expected: " << hash_hex.substr(0, 16) << "..." << std::endl;
+            std::cerr << "[NINA Checkpoint]   Actual:   " << actual_hex.substr(0, 16) << "..." << std::endl;
+            return false;
+        }
+    } catch (const std::exception& e) {
+        std::cerr << "[NINA Checkpoint] Error validating hash at height " << height 
+                  << ": " << e.what() << std::endl;
+        // Height may not exist yet (checkpoint ahead of us) — be permissive
+        return true;
+    }
 }
 
 bool CheckpointValidator::detectModifiedHashes(

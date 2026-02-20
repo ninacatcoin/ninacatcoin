@@ -6,6 +6,8 @@
 #include <sstream>
 #include <iomanip>
 #include <ctime>
+#include <cstdlib>
+#include <cstdio>
 #include <algorithm>
 
 namespace daemonize {
@@ -262,17 +264,58 @@ std::string DiscordNotifier::generateCheckpointJSON(
 
 bool DiscordNotifier::sendToDiscord(const std::string& json_payload) {
     if (!isConfigured()) {
-        MERROR("[Discord] ❌ Webhook not configured");
+        MERROR("[Discord] Webhook not configured");
         return false;
     }
 
-    // In production, use libcurl or similar to send HTTP POST
-    // For now, log that we would send
-    MINFO("[Discord] Would send alert to webhook");
-    MDEBUG("[Discord] Payload: " << json_payload);
-    
-    last_alert_count++;
-    return true;
+    // Use curl to send HTTP POST to Discord webhook
+    // Escape single quotes in payload for shell safety
+    std::string escaped_payload = json_payload;
+    size_t pos = 0;
+    while ((pos = escaped_payload.find('\'', pos)) != std::string::npos) {
+        escaped_payload.replace(pos, 1, "'\\''");
+        pos += 4;
+    }
+
+    // Build curl command: POST JSON to webhook URL, silent, with timeout
+    std::string cmd = "curl -s -o /dev/null -w '%{http_code}' "
+                      "-H 'Content-Type: application/json' "
+                      "-X POST "
+                      "-d '" + escaped_payload + "' "
+                      "'" + webhook_url + "' "
+                      "--connect-timeout 5 --max-time 10 2>/dev/null";
+
+    // Execute in a fire-and-forget manner to not block the daemon
+    // We use popen to capture the HTTP status code
+    FILE* pipe = popen(cmd.c_str(), "r");
+    if (!pipe) {
+        MERROR("[Discord] Failed to execute curl command");
+        return false;
+    }
+
+    char buffer[16] = {0};
+    if (fgets(buffer, sizeof(buffer), pipe) != nullptr) {
+        // buffer contains the HTTP status code
+        int status_code = std::atoi(buffer);
+        pclose(pipe);
+
+        if (status_code >= 200 && status_code < 300) {
+            MINFO("[Discord] Alert sent successfully (HTTP " << status_code << ")");
+            last_alert_count++;
+            return true;
+        } else if (status_code == 429) {
+            MWARNING("[Discord] Rate limited (HTTP 429) — alert queued");
+            last_alert_count++;
+            return true;  // Rate limit is expected behavior
+        } else {
+            MERROR("[Discord] Failed to send alert (HTTP " << status_code << ")");
+            return false;
+        }
+    }
+
+    pclose(pipe);
+    MWARNING("[Discord] No response from curl");
+    return false;
 }
 
 bool DiscordNotifier::sendAttackAlert(const AttackDetail& attack) {

@@ -375,5 +375,98 @@ namespace cryptonote
     };
     typedef epee::misc_utils::struct_init<request_t> request;
   };
+
+  /************************************************************************/
+  /* NINA AI Intelligence Sharing between nodes                          */
+  /************************************************************************/
+  struct NOTIFY_NINA_INTELLIGENCE
+  {
+    const static int ID = BC_COMMANDS_POOL_BASE + 11;
+
+    struct nina_intel_entry_t
+    {
+      std::string intel_type;       // "ATTACK_PATTERN", "ANOMALY", "PEER_REPUTATION", "THREAT_SIGNATURE"
+      uint64_t    height;           // Block height where detected
+      uint64_t    timestamp;        // When detected (unix epoch)
+      std::string pattern_id;       // Unique identifier for dedup
+      std::string data;             // Serialized details (pipe-delimited)
+      double      confidence;       // 0.0 - 1.0 how confident
+      std::string threat_level;     // "SAFE", "SUSPICIOUS", "DANGEROUS"
+      uint8_t     hops;             // TTL: decremented each relay, drop at 0
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(intel_type)
+        KV_SERIALIZE(height)
+        KV_SERIALIZE(timestamp)
+        KV_SERIALIZE(pattern_id)
+        KV_SERIALIZE(data)
+        KV_SERIALIZE(confidence)
+        KV_SERIALIZE(threat_level)
+        KV_SERIALIZE(hops)
+      END_KV_SERIALIZE_MAP()
+    };
+    typedef epee::misc_utils::struct_init<nina_intel_entry_t> nina_intel_entry;
+
+    struct request_t
+    {
+      std::vector<nina_intel_entry_t> entries;
+      uint64_t sender_height;       // Sender's current blockchain height
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(entries)
+        KV_SERIALIZE(sender_height)
+      END_KV_SERIALIZE_MAP()
+    };
+    typedef epee::misc_utils::struct_init<request_t> request;
+  };
+
+  /************************************************************************/
+  /* NINA AI Model Sharing — distribute trained ML models between nodes  */
+  /* Allows new nodes to receive pre-trained models immediately instead  */
+  /* of waiting for 1000+ blocks to accumulate for local training.       */
+  /* Models are serialized as base64-encoded blobs with version tracking */
+  /************************************************************************/
+  struct NOTIFY_NINA_MODEL_SHARE
+  {
+    const static int ID = BC_COMMANDS_POOL_BASE + 12;
+
+    struct nina_model_entry_t
+    {
+      std::string model_name;       // "phase1_anomaly_detector", "phase2_difficulty", etc.
+      std::string model_version;    // SHA-256 of model bytes (for dedup + integrity)
+      uint64_t    training_height;  // Blockchain height model was trained up to
+      uint64_t    training_rows;    // Number of training samples used
+      uint64_t    timestamp;        // When model was trained (unix epoch)
+      double      accuracy;         // Reported model accuracy / R² score
+      std::string model_data;       // Base64-encoded serialized model blob
+      uint32_t    data_size;        // Original (unencoded) size in bytes
+      uint8_t     hops;             // TTL: decremented each relay, drop at 0
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(model_name)
+        KV_SERIALIZE(model_version)
+        KV_SERIALIZE(training_height)
+        KV_SERIALIZE(training_rows)
+        KV_SERIALIZE(timestamp)
+        KV_SERIALIZE(accuracy)
+        KV_SERIALIZE(model_data)
+        KV_SERIALIZE(data_size)
+        KV_SERIALIZE(hops)
+      END_KV_SERIALIZE_MAP()
+    };
+    typedef epee::misc_utils::struct_init<nina_model_entry_t> nina_model_entry;
+
+    struct request_t
+    {
+      std::vector<nina_model_entry_t> models;
+      uint64_t sender_height;
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(models)
+        KV_SERIALIZE(sender_height)
+      END_KV_SERIALIZE_MAP()
+    };
+    typedef epee::misc_utils::struct_init<request_t> request;
+  };
     
 }

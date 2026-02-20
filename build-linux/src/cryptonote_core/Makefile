@@ -199,6 +199,30 @@ cryptonote_core/fast:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/cryptonote_core/CMakeFiles/cryptonote_core.dir/build.make src/cryptonote_core/CMakeFiles/cryptonote_core.dir/build
 .PHONY : cryptonote_core/fast
 
+__/daemon/nina_block_data_logger.o: __/daemon/nina_block_data_logger.cpp.o
+.PHONY : __/daemon/nina_block_data_logger.o
+
+# target to build an object file
+__/daemon/nina_block_data_logger.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/build.make src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/__/daemon/nina_block_data_logger.cpp.o
+.PHONY : __/daemon/nina_block_data_logger.cpp.o
+
+__/daemon/nina_block_data_logger.i: __/daemon/nina_block_data_logger.cpp.i
+.PHONY : __/daemon/nina_block_data_logger.i
+
+# target to preprocess a source file
+__/daemon/nina_block_data_logger.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/build.make src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/__/daemon/nina_block_data_logger.cpp.i
+.PHONY : __/daemon/nina_block_data_logger.cpp.i
+
+__/daemon/nina_block_data_logger.s: __/daemon/nina_block_data_logger.cpp.s
+.PHONY : __/daemon/nina_block_data_logger.s
+
+# target to generate assembly for a file
+__/daemon/nina_block_data_logger.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/build.make src/cryptonote_core/CMakeFiles/obj_cryptonote_core.dir/__/daemon/nina_block_data_logger.cpp.s
+.PHONY : __/daemon/nina_block_data_logger.cpp.s
+
 __/daemon/nina_ml_client.o: __/daemon/nina_ml_client.cpp.o
 .PHONY : __/daemon/nina_ml_client.o
 
@@ -382,6 +406,9 @@ help:
 	@echo "... test"
 	@echo "... cryptonote_core"
 	@echo "... obj_cryptonote_core"
+	@echo "... __/daemon/nina_block_data_logger.o"
+	@echo "... __/daemon/nina_block_data_logger.i"
+	@echo "... __/daemon/nina_block_data_logger.s"
 	@echo "... __/daemon/nina_ml_client.o"
 	@echo "... __/daemon/nina_ml_client.i"
 	@echo "... __/daemon/nina_ml_client.s"

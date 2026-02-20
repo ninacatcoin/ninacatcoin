@@ -7,6 +7,8 @@
 #include "ai_config.hpp"
 #include <string>
 #include <vector>
+#include <map>
+#include <mutex>
 #include <cstdint>
 
 namespace ninacatcoin_ai {
@@ -83,6 +85,36 @@ public:
      */
     std::string getLastError() const;
 
+    // ======= P2P Hash Exchange =======
+
+    /**
+     * Get the compile-time AI code hash (static, no instance needed)
+     */
+    static const char* getCompiledHash();
+
+    /**
+     * Record a peer's AI code hash for consensus tracking
+     * @param peer_id   Unique peer identifier
+     * @param hash      Peer's reported AI code hash
+     */
+    void recordPeerHash(const std::string& peer_id, const std::string& hash);
+
+    /**
+     * Get network consensus on AI code hash
+     * @return pair of (majority_hash, agreement_percentage 0.0-1.0)
+     */
+    std::pair<std::string, double> getNetworkConsensus() const;
+
+    /**
+     * Check if we should trigger auto-update (our hash is in minority)
+     */
+    bool shouldTriggerAutoUpdate() const;
+
+    /**
+     * Get count of peers that have been queried
+     */
+    int getPeerCount() const;
+
 private:
     IntegrityVerifier();
     ~IntegrityVerifier();
@@ -119,6 +151,11 @@ private:
 
     // Validate downloaded code from GitHub
     bool validateDownloadedCode(const std::string& code_hash);
+
+    // P2P hash tracking
+    mutable std::mutex m_peer_hash_mutex;
+    std::map<std::string, std::string> m_peer_hashes;  // peer_id → hash
+    std::map<std::string, int> m_hash_counts;           // hash → count
 };
 
 } // namespace ninacatcoin_ai

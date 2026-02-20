@@ -34,6 +34,7 @@ set(cryptonote_core_sources
   cryptonote_tx_utils.cpp
   tx_verification_utils.cpp
   ../daemon/nina_ml_client.cpp
+  ../daemon/nina_block_data_logger.cpp
 )
 
 set(cryptonote_core_headers)

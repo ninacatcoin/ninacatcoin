@@ -40,11 +40,16 @@
 #include <boost/uuid/uuid_generators.hpp>
 #include <list>
 #include <ctime>
+#include <set>
+#include <filesystem>
+#include <fstream>
 
 #include <cryptonote_core/cryptonote_core.h>
 #include "cryptonote_protocol/cryptonote_protocol_handler.h"
 #include "cryptonote_basic/cryptonote_format_utils.h"
 #include "profile_tools.h"
+#include "ai/ai_integrity_verifier.hpp"
+#include "ai/ai_auto_updater.hpp"
 #include "net/network_throttle-detail.hpp"
 #include "common/pruning.h"
 #include "common/util.h"
@@ -883,6 +888,280 @@ namespace cryptonote
 
     post_notify<NOTIFY_NEW_TRANSACTIONS>(new_txes, context);
     return 1;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA AI Intelligence Sharing Handler
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  int t_cryptonote_protocol_handler<t_core>::handle_notify_nina_intelligence(int command, NOTIFY_NINA_INTELLIGENCE::request& arg, cryptonote_connection_context& context)
+  {
+    MLOG_P2P_MESSAGE("Received NOTIFY_NINA_INTELLIGENCE (" << arg.entries.size() << " intel entries from height " << arg.sender_height << ")");
+
+    if(context.m_state != cryptonote_connection_context::state_normal)
+      return 1;
+
+    // Ignore intel while syncing — we need to be caught up first
+    if(!is_synchronized())
+    {
+      LOG_DEBUG_CC(context, "Received NINA intel while syncing, ignored");
+      return 1;
+    }
+
+    // Rate limit: max 50 entries per message
+    if(arg.entries.size() > 50)
+    {
+      LOG_PRINT_CCONTEXT_L1("NINA intel message too large (" << arg.entries.size() << " entries), dropping");
+      return 1;
+    }
+
+    // Process each intel entry
+    static std::set<std::string> seen_pattern_ids;  // dedup
+    NOTIFY_NINA_INTELLIGENCE::request relay_arg;
+    relay_arg.sender_height = arg.sender_height;
+
+    for (auto& entry : arg.entries)
+    {
+      // Skip if we've already seen this pattern_id
+      if (seen_pattern_ids.count(entry.pattern_id))
+        continue;
+
+      // Skip if TTL expired
+      if (entry.hops == 0)
+        continue;
+
+      // Skip stale intel (> 1 hour old)
+      uint64_t now = static_cast<uint64_t>(std::time(nullptr));
+      if (now > entry.timestamp && (now - entry.timestamp) > 3600)
+        continue;
+
+      // Validate confidence range
+      if (entry.confidence < 0.0 || entry.confidence > 1.0)
+        continue;
+
+      // Accept this intel: store in our LMDB and log
+      seen_pattern_ids.insert(entry.pattern_id);
+
+      // Bound the seen set to prevent memory growth
+      if (seen_pattern_ids.size() > 10000)
+      {
+        auto it = seen_pattern_ids.begin();
+        std::advance(it, 5000);
+        seen_pattern_ids.erase(seen_pattern_ids.begin(), it);
+      }
+
+      MINFO("[NINA-P2P] Received intel: type=" << entry.intel_type
+            << " threat=" << entry.threat_level
+            << " confidence=" << entry.confidence
+            << " height=" << entry.height
+            << " hops=" << (int)entry.hops
+            << " from peer " << epee::net_utils::print_connection_context_short(context));
+
+      // === P2P AI Code Hash Validation ===
+      if (entry.intel_type == "AI_CODE_HASH" && !entry.data.empty())
+      {
+        std::string peer_id = epee::net_utils::print_connection_context_short(context);
+        ninacatcoin_ai::IntegrityVerifier::getInstance().recordPeerHash(peer_id, entry.data);
+
+        // Check if we should auto-update
+        if (ninacatcoin_ai::IntegrityVerifier::getInstance().shouldTriggerAutoUpdate())
+        {
+          auto [consensus_hash, agreement] = ninacatcoin_ai::IntegrityVerifier::getInstance().getNetworkConsensus();
+          MWARNING("[NINA-P2P] ⚠️  AI hash mismatch with " << (int)(agreement * 100)
+                   << "% of network — considering auto-update");
+
+          std::string our_hash = ninacatcoin_ai::IntegrityVerifier::getCompiledHash();
+          auto& updater = ninacatcoin_ai::AutoUpdater::getInstance();
+          if (!updater.isUpdating() && updater.shouldUpdate(our_hash, consensus_hash, agreement))
+          {
+            MWARNING("[NINA-P2P] 🔄 Triggering auto-update from GitHub...");
+            // Run update in a detached thread to not block P2P
+            std::thread([consensus_hash]() {
+              ninacatcoin_ai::AutoUpdater::getInstance().performUpdate(consensus_hash);
+            }).detach();
+          }
+        }
+      }
+
+      // Prepare for relay with decremented hops
+      if (entry.hops > 1)
+      {
+        auto relay_entry = entry;
+        relay_entry.hops--;
+        relay_arg.entries.push_back(relay_entry);
+      }
+    }
+
+    // Relay to other peers (flood propagation with TTL)
+    if (!relay_arg.entries.empty())
+    {
+      relay_nina_intelligence(relay_arg, context);
+    }
+
+    return 1;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA Intelligence relay to all connected peers except source
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  bool t_cryptonote_protocol_handler<t_core>::relay_nina_intelligence(NOTIFY_NINA_INTELLIGENCE::request& arg, cryptonote_connection_context& exclude_context)
+  {
+    size_t relayed = 0;
+    m_p2p->for_each_connection([&](cryptonote_connection_context& context, nodetool::peerid_type peer_id, uint32_t support_flags) -> bool
+    {
+      if (context.m_connection_id == exclude_context.m_connection_id)
+        return true;  // skip sender
+      if (context.m_state != cryptonote_connection_context::state_normal)
+        return true;  // skip non-synced peers
+
+      post_notify<NOTIFY_NINA_INTELLIGENCE>(arg, context);
+      relayed++;
+      return true;
+    });
+
+    MINFO("[NINA-P2P] Relayed " << arg.entries.size() << " intel entries to " << relayed << " peers");
+    return true;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA Model Share — receive trained ML models from peers
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  int t_cryptonote_protocol_handler<t_core>::handle_notify_nina_model_share(int command, NOTIFY_NINA_MODEL_SHARE::request& arg, cryptonote_connection_context& context)
+  {
+    MINFO("[NINA-MODEL] Received " << arg.models.size() << " model(s) from peer, sender_height=" << arg.sender_height);
+
+    if (arg.models.empty())
+      return 1;
+
+    // Rate limit: max 4 models per message
+    if (arg.models.size() > 4)
+    {
+      MWARNING("[NINA-MODEL] Too many models in single message (" << arg.models.size() << "), dropping");
+      return 1;
+    }
+
+    // Dedup: track model_version (SHA-256 hash) to avoid reprocessing
+    static std::set<std::string> seen_model_versions;
+    static const size_t MAX_SEEN = 500;
+
+    NOTIFY_NINA_MODEL_SHARE::request relay_arg = {};
+    relay_arg.sender_height = arg.sender_height;
+
+    uint64_t now = static_cast<uint64_t>(std::time(nullptr));
+
+    for (auto& model : arg.models)
+    {
+      // Skip if already seen
+      if (seen_model_versions.count(model.model_version))
+      {
+        MDEBUG("[NINA-MODEL] Duplicate model " << model.model_name << " v=" << model.model_version.substr(0, 12) << "...");
+        continue;
+      }
+
+      // Validate TTL
+      if (model.hops == 0)
+        continue;
+
+      // Reject stale models (trained > 24h ago)
+      if (now > model.timestamp && (now - model.timestamp) > 86400)
+      {
+        MDEBUG("[NINA-MODEL] Stale model " << model.model_name << " (age=" << (now - model.timestamp) << "s), skipping");
+        continue;
+      }
+
+      // Size validation: max 5MB per model (base64)
+      if (model.model_data.size() > 5 * 1024 * 1024 * 4 / 3)
+      {
+        MWARNING("[NINA-MODEL] Model " << model.model_name << " too large (" << model.model_data.size() << " bytes), skipping");
+        continue;
+      }
+
+      // Accept and save model to disk
+      MINFO("[NINA-MODEL] Accepted model: " << model.model_name
+            << " trained@height=" << model.training_height
+            << " rows=" << model.training_rows
+            << " accuracy=" << model.accuracy
+            << " size=" << model.data_size << "B");
+
+      // Save to nina_state directory for ML server to pick up
+      try {
+        const char* home = std::getenv("HOME");
+        if (!home) home = std::getenv("USERPROFILE");
+        if (home) {
+          std::string model_dir = std::string(home) + "/.ninacatcoin/nina_shared_models/";
+          // Create directory if needed
+          std::filesystem::create_directories(model_dir);
+
+          std::string model_path = model_dir + model.model_name + ".b64";
+          std::ofstream out(model_path, std::ios::trunc);
+          if (out.is_open()) {
+            out << model.model_data;
+            out.close();
+
+            // Write metadata alongside
+            std::string meta_path = model_dir + model.model_name + ".meta";
+            std::ofstream meta(meta_path, std::ios::trunc);
+            if (meta.is_open()) {
+              meta << "version=" << model.model_version << "\n"
+                   << "training_height=" << model.training_height << "\n"
+                   << "training_rows=" << model.training_rows << "\n"
+                   << "accuracy=" << model.accuracy << "\n"
+                   << "timestamp=" << model.timestamp << "\n"
+                   << "data_size=" << model.data_size << "\n";
+              meta.close();
+            }
+            MINFO("[NINA-MODEL] Saved to " << model_path);
+          }
+        }
+      } catch (const std::exception& e) {
+        MWARNING("[NINA-MODEL] Failed to save model: " << e.what());
+      }
+
+      // Track and prepare for relay
+      seen_model_versions.insert(model.model_version);
+      if (seen_model_versions.size() > MAX_SEEN)
+      {
+        auto it = seen_model_versions.begin();
+        std::advance(it, seen_model_versions.size() / 2);
+        seen_model_versions.erase(seen_model_versions.begin(), it);
+      }
+
+      if (model.hops > 1)
+      {
+        auto relay_model = model;
+        relay_model.hops--;
+        relay_arg.models.push_back(relay_model);
+      }
+    }
+
+    // Relay to other peers
+    if (!relay_arg.models.empty())
+    {
+      relay_nina_model_share(relay_arg, context);
+    }
+
+    return 1;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA Model Share relay to all connected peers except source
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  bool t_cryptonote_protocol_handler<t_core>::relay_nina_model_share(NOTIFY_NINA_MODEL_SHARE::request& arg, cryptonote_connection_context& exclude_context)
+  {
+    size_t relayed = 0;
+    m_p2p->for_each_connection([&](cryptonote_connection_context& context, nodetool::peerid_type peer_id, uint32_t support_flags) -> bool
+    {
+      if (context.m_connection_id == exclude_context.m_connection_id)
+        return true;
+      if (context.m_state != cryptonote_connection_context::state_normal)
+        return true;
+
+      post_notify<NOTIFY_NINA_MODEL_SHARE>(arg, context);
+      relayed++;
+      return true;
+    });
+
+    MINFO("[NINA-MODEL] Relayed " << arg.models.size() << " model(s) to " << relayed << " peers");
+    return true;
   }
   //------------------------------------------------------------------------------------------------------------------------
   template<class t_core>
@@ -2439,6 +2718,27 @@ skip:
     }
     m_core.safesyncmode(true);
     m_p2p->clear_used_stripe_peers();
+
+    // === Broadcast our AI code hash to all peers ===
+    {
+      const char* our_ai_hash = ninacatcoin_ai::IntegrityVerifier::getCompiledHash();
+      NOTIFY_NINA_INTELLIGENCE::request hash_msg;
+      hash_msg.sender_height = current_blockchain_height;
+      NOTIFY_NINA_INTELLIGENCE::nina_intel_entry_t hash_entry;
+      hash_entry.intel_type = "AI_CODE_HASH";
+      hash_entry.height = current_blockchain_height;
+      hash_entry.timestamp = static_cast<uint64_t>(std::time(nullptr));
+      hash_entry.pattern_id = std::string("aihash_") + std::string(our_ai_hash).substr(0, 16);
+      hash_entry.data = our_ai_hash;
+      hash_entry.confidence = 1.0;
+      hash_entry.threat_level = "SAFE";
+      hash_entry.hops = 3;  // propagate up to 3 hops
+      hash_msg.entries.push_back(hash_entry);
+
+      cryptonote_connection_context no_exclude{};
+      relay_nina_intelligence(hash_msg, no_exclude);
+      MINFO("[NINA-P2P] Broadcasted AI code hash to peers: " << std::string(our_ai_hash).substr(0, 16) << "...");
+    }
 
     // ask for txpool complement from any suitable node if we did not yet
     val_expected = true;

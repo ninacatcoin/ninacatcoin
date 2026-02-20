@@ -523,6 +523,19 @@ version/fast:
 .PHONY : version/fast
 
 #=============================================================================
+# Target rules for targets named ai_integrity_hash
+
+# Build rule for target.
+ai_integrity_hash: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 ai_integrity_hash
+.PHONY : ai_integrity_hash
+
+# fast build rule for target.
+ai_integrity_hash/fast:
+	$(MAKE) $(MAKESILENT) -f src/CMakeFiles/ai_integrity_hash.dir/build.make src/CMakeFiles/ai_integrity_hash.dir/build
+.PHONY : ai_integrity_hash/fast
+
+#=============================================================================
 # Target rules for targets named obj_common
 
 # Build rule for target.
@@ -1510,6 +1523,7 @@ help:
 	@echo "... list_install_components"
 	@echo "... rebuild_cache"
 	@echo "... test"
+	@echo "... ai_integrity_hash"
 	@echo "... doc"
 	@echo "... download_oss_fuzz"
 	@echo "... generate_translations_header"

@@ -38,6 +38,8 @@ add_library(ninacatcoin_ai STATIC
   ai_checkpoint_monitor.cpp
   ai_lwma_learning.hpp
   ai_lwma_learning.cpp
+  ai_auto_updater.hpp
+  ai_auto_updater.cpp
   # ai_hashrate_recovery_monitor.hpp
   # ai_hashrate_recovery_monitor.cpp
 )
@@ -45,7 +47,11 @@ add_library(ninacatcoin_ai STATIC
 target_include_directories(ninacatcoin_ai
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/src/common
+    ${CMAKE_SOURCE_DIR}/src/crypto
+    ${CMAKE_SOURCE_DIR}/contrib/epee/include
+    ${CMAKE_BINARY_DIR}/generated_include
     ${JSONCPP_INCLUDE_DIRS}
 )
 
@@ -70,6 +76,11 @@ target_link_libraries(ninacatcoin_ai
     common
     ${JSONCPP_LIBRARIES}
 )
+
+# Ensure AI hash header is generated before compiling
+if(TARGET ai_integrity_hash)
+  add_dependencies(ninacatcoin_ai ai_integrity_hash)
+endif()
 
 # Install headers
 ninacatcoin_install_headers("ai"

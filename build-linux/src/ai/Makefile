@@ -185,6 +185,30 @@ ninacatcoin_ai/fast:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/build
 .PHONY : ninacatcoin_ai/fast
 
+ai_auto_updater.o: ai_auto_updater.cpp.o
+.PHONY : ai_auto_updater.o
+
+# target to build an object file
+ai_auto_updater.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_auto_updater.cpp.o
+.PHONY : ai_auto_updater.cpp.o
+
+ai_auto_updater.i: ai_auto_updater.cpp.i
+.PHONY : ai_auto_updater.i
+
+# target to preprocess a source file
+ai_auto_updater.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_auto_updater.cpp.i
+.PHONY : ai_auto_updater.cpp.i
+
+ai_auto_updater.s: ai_auto_updater.cpp.s
+.PHONY : ai_auto_updater.s
+
+# target to generate assembly for a file
+ai_auto_updater.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_auto_updater.cpp.s
+.PHONY : ai_auto_updater.cpp.s
+
 ai_checkpoint_monitor.o: ai_checkpoint_monitor.cpp.o
 .PHONY : ai_checkpoint_monitor.o
 
@@ -415,6 +439,9 @@ help:
 	@echo "... rebuild_cache"
 	@echo "... test"
 	@echo "... ninacatcoin_ai"
+	@echo "... ai_auto_updater.o"
+	@echo "... ai_auto_updater.i"
+	@echo "... ai_auto_updater.s"
 	@echo "... ai_checkpoint_monitor.o"
 	@echo "... ai_checkpoint_monitor.i"
 	@echo "... ai_checkpoint_monitor.s"

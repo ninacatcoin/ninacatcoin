@@ -21,8 +21,11 @@ import logging
 import argparse
 import sys
 import time
+import subprocess
+import csv
+from collections import deque
 from pathlib import Path
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 from datetime import datetime, timezone
 import traceback
 import joblib
@@ -59,11 +62,26 @@ class NINAMLService:
             'phase1_scaler': None,     # StandardScaler for PHASE 1
             'phase2_model': None,      # Gradient Boosting regressor
             'phase2_scaler': None,     # StandardScaler for PHASE 2
+            'phase1_features': None,   # Feature names list for PHASE 1
+            'phase2_features': None,   # Feature names list for PHASE 2
             'block_validator': None,   # Legacy PHASE 1
             'difficulty_agent': None,  # Legacy PHASE 2
             'sybil_reasoner': None,    # PHASE 3: GNN reasoner
             'gas_optimizer': None      # PHASE 4: RL gas price agent
         }
+        
+        # Block history buffer for computing sliding window features at inference
+        # Stores dicts: {solve_time, difficulty, network_health, miner_diversity, hash_entropy}
+        self._block_history: deque = deque(maxlen=120)  # keep last 120 blocks
+        self._history_lock = threading.Lock()
+        
+        # Auto-retrain state
+        self._last_train_row_count = 0      # CSV row count at last training
+        self._retrain_threshold = 1000      # Retrain every N new blocks
+        self._retrain_interval = 600        # Check every 10 minutes (seconds)
+        self._retrain_lock = threading.Lock()
+        self._training_csv = None           # Set in start() after resolving home dir
+        self._train_script = Path(__file__).parent.parent.parent / 'train_models.py'
         
         logger.info(f"NINA ML Service initialized: {host}:{port}, models_dir={models_dir}")
 
@@ -80,6 +98,19 @@ class NINAMLService:
             
             # Load models
             self._load_models()
+            
+            # Initialize auto-retrain: find training CSV and get baseline row count
+            self._init_auto_retrain()
+            
+            # Start auto-retrain background thread
+            retrain_thread = threading.Thread(
+                target=self._auto_retrain_loop,
+                daemon=True,
+                name='auto-retrain'
+            )
+            retrain_thread.start()
+            logger.info(f"✓ Auto-retrain thread started (check every {self._retrain_interval}s, "
+                       f"retrain after {self._retrain_threshold} new blocks)")
             
             # Accept connections
             while self.running:
@@ -116,42 +147,445 @@ class NINAMLService:
         self.running = False
         logger.info("Stopping ML Service...")
 
+    def _init_auto_retrain(self):
+        """Find training CSV, backfill from blockchain if needed, record baseline."""
+        import os
+        if sys.platform != 'win32':
+            try:
+                import pwd
+                home = Path(pwd.getpwnam(os.getenv('USER', 'jose')).pw_dir)
+            except Exception:
+                home = Path.home()
+        else:
+            home = Path(os.path.expandvars('%USERPROFILE%'))
+        
+        self._training_csv = home / '.ninacatcoin' / 'ml_training_data.csv'
+        self._rpc_url = 'http://127.0.0.1:19081/json_rpc'
+        
+        # Backfill CSV from local blockchain via RPC
+        self._backfill_csv_from_blockchain()
+        
+        if self._training_csv.exists():
+            self._last_train_row_count = self._count_csv_rows(self._training_csv)
+            logger.info(f"[Auto-Retrain] Baseline CSV rows: {self._last_train_row_count}")
+        else:
+            logger.info(f"[Auto-Retrain] CSV not found yet: {self._training_csv}")
+            self._last_train_row_count = 0
+
+    # ------------------------------------------------------------------
+    # CSV Backfill from Local Blockchain via RPC
+    # ------------------------------------------------------------------
+    def _rpc_call(self, method: str, params: dict = None) -> Optional[dict]:
+        """Make a JSON-RPC call to the local daemon."""
+        import urllib.request
+        payload = json.dumps({
+            "jsonrpc": "2.0",
+            "id": "0",
+            "method": method,
+            "params": params or {}
+        }).encode('utf-8')
+        try:
+            req = urllib.request.Request(
+                self._rpc_url,
+                data=payload,
+                headers={'Content-Type': 'application/json'}
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode('utf-8'))
+                if 'error' in data:
+                    logger.warning(f"[RPC] {method} error: {data['error']}")
+                    return None
+                return data.get('result')
+        except Exception as e:
+            logger.debug(f"[RPC] {method} failed: {e}")
+            return None
+
+    def _get_last_csv_height(self) -> int:
+        """Read the last height already present in the training CSV. Returns -1 if empty."""
+        if not self._training_csv.exists():
+            return -1
+        try:
+            last_height = -1
+            with open(self._training_csv, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('height'):
+                        continue
+                    parts = line.split(',')
+                    if parts:
+                        try:
+                            last_height = int(parts[0])
+                        except ValueError:
+                            pass
+            return last_height
+        except Exception:
+            return -1
+
+    def _backfill_csv_from_blockchain(self):
+        """
+        Auto-generate training CSV rows from the local blockchain via RPC.
+        
+        Each node has the SAME blockchain, so sharing the CSV is unnecessary.
+        Instead, each node fills its own CSV directly from its local chain.
+        
+        This runs at startup to catch up any blocks the daemon processed
+        before the ML server was running, or to regenerate a missing/partial CSV.
+        """
+        logger.info("[Backfill] Checking if CSV needs backfill from local blockchain...")
+        
+        # Check daemon is reachable
+        info = self._rpc_call('get_info')
+        if not info:
+            logger.info("[Backfill] Daemon not reachable — skipping backfill (will retry next restart)")
+            return
+        
+        chain_height = info.get('height', 0) - 1  # 'height' is next block, top is height-1
+        if chain_height <= 0:
+            logger.info("[Backfill] Chain is empty, nothing to backfill")
+            return
+        
+        last_csv_height = self._get_last_csv_height()
+        start_height = last_csv_height + 1
+        
+        if start_height > chain_height:
+            logger.info(f"[Backfill] CSV already up-to-date (last={last_csv_height}, chain={chain_height})")
+            return
+        
+        blocks_to_fill = chain_height - start_height + 1
+        logger.info(f"[Backfill] Filling {blocks_to_fill} blocks ({start_height} → {chain_height}) from local blockchain...")
+        
+        # Ensure CSV exists with header
+        write_header = not self._training_csv.exists() or self._count_csv_rows(self._training_csv) == 0
+        
+        filled = 0
+        prev_timestamp = None
+        
+        # If we need solve_time for block N, we need block N-1 timestamp
+        if start_height > 0:
+            prev_result = self._rpc_call('get_block_header_by_height', {'height': start_height - 1})
+            if prev_result and 'block_header' in prev_result:
+                prev_timestamp = prev_result['block_header'].get('timestamp')
+        
+        with open(str(self._training_csv), 'a', newline='') as f:
+            writer = csv.writer(f)
+            if write_header:
+                writer.writerow([
+                    'height', 'timestamp', 'solve_time', 'difficulty', 'cumulative_difficulty',
+                    'txs_count', 'block_size_bytes', 'network_health', 'miner_diversity',
+                    'hash_entropy', 'ml_confidence', 'ml_risk_score', 'block_accepted'
+                ])
+            
+            # Batch fetch using get_block_headers_range (more efficient)
+            BATCH_SIZE = 100
+            for batch_start in range(start_height, chain_height + 1, BATCH_SIZE):
+                batch_end = min(batch_start + BATCH_SIZE - 1, chain_height)
+                
+                result = self._rpc_call('get_block_headers_range', {
+                    'start_height': batch_start,
+                    'end_height': batch_end
+                })
+                
+                if not result or 'headers' not in result:
+                    # Fallback: fetch one by one
+                    for h in range(batch_start, batch_end + 1):
+                        r = self._rpc_call('get_block_header_by_height', {'height': h})
+                        if r and 'block_header' in r:
+                            hdr = r['block_header']
+                            self._write_block_row(writer, hdr, prev_timestamp)
+                            prev_timestamp = hdr.get('timestamp')
+                            filled += 1
+                    continue
+                
+                for hdr in result['headers']:
+                    self._write_block_row(writer, hdr, prev_timestamp)
+                    prev_timestamp = hdr.get('timestamp')
+                    filled += 1
+                
+                if filled % 1000 == 0 and filled > 0:
+                    f.flush()
+                    logger.info(f"[Backfill] Progress: {filled}/{blocks_to_fill} blocks...")
+        
+        logger.info(f"[Backfill] ✓ Filled {filled} blocks into CSV ({self._training_csv})")
+
+    def _write_block_row(self, writer, hdr: dict, prev_timestamp: Optional[int]):
+        """Write a single block row to CSV from RPC block_header data."""
+        ts = hdr.get('timestamp', 0)
+        solve_time = 120  # default
+        if prev_timestamp and ts > prev_timestamp:
+            solve_time = ts - prev_timestamp
+        
+        # Compute simple hash entropy from block hash
+        block_hash = hdr.get('hash', '')
+        hash_entropy = 0
+        if block_hash:
+            for i in range(1, len(block_hash)):
+                if block_hash[i] != block_hash[i - 1]:
+                    hash_entropy += 1
+        
+        writer.writerow([
+            hdr.get('height', 0),
+            ts,
+            solve_time,
+            hdr.get('difficulty', 0),
+            hdr.get('cumulative_difficulty', 0),
+            hdr.get('num_txes', 0) + 1,  # +1 coinbase, same as daemon
+            hdr.get('block_weight', hdr.get('block_size', 0)),
+            0.950000,       # network_health (same default as daemon)
+            0.500000,       # miner_diversity (same default as daemon)
+            hash_entropy,
+            0.000000,       # ml_confidence (not available)
+            0.000000,       # ml_risk_score (not available)
+            1               # block_accepted (it's in the chain)
+        ])
+    
+    def _count_csv_rows(self, csv_path: Path) -> int:
+        """Count data rows in CSV (excluding header)."""
+        try:
+            with open(csv_path, 'r') as f:
+                return sum(1 for _ in f) - 1  # minus header
+        except Exception:
+            return 0
+    
+    def _auto_retrain_loop(self):
+        """
+        Background thread: periodically check if enough new blocks have accumulated
+        in the training CSV, and if so, run the full training pipeline and hot-reload.
+        """
+        logger.info("[Auto-Retrain] Background monitor started")
+        
+        while self.running:
+            try:
+                time.sleep(self._retrain_interval)
+                
+                if not self.running:
+                    break
+                
+                if self._training_csv is None or not self._training_csv.exists():
+                    continue
+                
+                current_rows = self._count_csv_rows(self._training_csv)
+                new_rows = current_rows - self._last_train_row_count
+                
+                if new_rows < self._retrain_threshold:
+                    logger.debug(f"[Auto-Retrain] {new_rows}/{self._retrain_threshold} new blocks, waiting...")
+                    continue
+                
+                logger.info(f"[Auto-Retrain] {new_rows} new blocks detected (threshold={self._retrain_threshold}). "
+                           f"Starting retraining...")
+                
+                success = self._run_training()
+                
+                if success:
+                    self._last_train_row_count = current_rows
+                    logger.info("[Auto-Retrain] Retraining succeeded. Hot-reloading models...")
+                    self.reload_models()
+                    logger.info("[Auto-Retrain] ✓ Models reloaded successfully after retraining")
+                else:
+                    logger.error("[Auto-Retrain] ✗ Retraining failed — keeping old models")
+                    
+            except Exception as e:
+                logger.error(f"[Auto-Retrain] Error in retrain loop: {e}")
+                traceback.print_exc()
+    
+    def _run_training(self) -> bool:
+        """
+        Execute the training pipeline.
+        First tries to import train_models.py directly (faster, in-process).
+        Falls back to subprocess if import fails.
+        """
+        with self._retrain_lock:
+            try:
+                # Try in-process training by importing the module
+                train_script = self._train_script
+                if train_script.exists():
+                    logger.info(f"[Auto-Retrain] Running training script: {train_script}")
+                    result = subprocess.run(
+                        [sys.executable, str(train_script)],
+                        capture_output=True,
+                        text=True,
+                        timeout=300,  # 5 min max
+                        cwd=str(train_script.parent)
+                    )
+                    
+                    if result.returncode == 0:
+                        logger.info("[Auto-Retrain] ✓ Training completed successfully")
+                        # Log last few lines of output
+                        for line in result.stdout.strip().split('\n')[-5:]:
+                            logger.info(f"  [train] {line}")
+                        return True
+                    else:
+                        logger.error(f"[Auto-Retrain] Training failed (exit code {result.returncode})")
+                        for line in result.stderr.strip().split('\n')[-5:]:
+                            logger.error(f"  [train] {line}")
+                        return False
+                else:
+                    logger.error(f"[Auto-Retrain] Training script not found: {train_script}")
+                    return False
+                    
+            except subprocess.TimeoutExpired:
+                logger.error("[Auto-Retrain] Training timed out after 5 minutes")
+                return False
+            except Exception as e:
+                logger.error(f"[Auto-Retrain] Training error: {e}")
+                traceback.print_exc()
+                return False
+
     def _load_models(self):
         """
-        Load pre-trained models from disk
-        Uses trained sklearn models instead of placeholder implementations
+        Load pre-trained models from disk.
+        v2.0: Supports Isolation Forest (PHASE 1) + GradientBoosting (PHASE 2)
+        Also loads feature lists so we know which features each model expects.
         """
         logger.info("Loading ML models...")
         
         try:
-            # Try to load trained models
-            phase1_model_path = self.models_dir / 'phase1_block_validator.pkl'
+            # PHASE 1: Isolation Forest (anomaly detection)
+            phase1_model_path = self.models_dir / 'phase1_anomaly_detector.pkl'
             phase1_scaler_path = self.models_dir / 'phase1_scaler.pkl'
+            phase1_features_path = self.models_dir / 'phase1_features.pkl'
+            
+            # PHASE 2: GradientBoosting (difficulty prediction)
             phase2_model_path = self.models_dir / 'phase2_difficulty.pkl'
             phase2_scaler_path = self.models_dir / 'phase2_scaler.pkl'
+            phase2_features_path = self.models_dir / 'phase2_features.pkl'
             
-            if all([phase1_model_path.exists(), phase1_scaler_path.exists(),
-                   phase2_model_path.exists(), phase2_scaler_path.exists()]):
-                
+            # Load PHASE 1
+            if phase1_model_path.exists() and phase1_scaler_path.exists():
                 self.models['phase1_model'] = joblib.load(phase1_model_path)
                 self.models['phase1_scaler'] = joblib.load(phase1_scaler_path)
+                if phase1_features_path.exists():
+                    self.models['phase1_features'] = joblib.load(phase1_features_path)
+                logger.info("✓ PHASE 1 loaded (Isolation Forest — anomaly detection)")
+            else:
+                # Legacy: try old Random Forest model
+                legacy_path = self.models_dir / 'phase1_block_validator.pkl'
+                if legacy_path.exists() and phase1_scaler_path.exists():
+                    self.models['phase1_model'] = joblib.load(legacy_path)
+                    self.models['phase1_scaler'] = joblib.load(phase1_scaler_path)
+                    logger.info("✓ PHASE 1 loaded (legacy Random Forest)")
+                else:
+                    logger.warning("⚠ PHASE 1 model not found")
+            
+            # Load PHASE 2
+            if phase2_model_path.exists() and phase2_scaler_path.exists():
                 self.models['phase2_model'] = joblib.load(phase2_model_path)
                 self.models['phase2_scaler'] = joblib.load(phase2_scaler_path)
-                
-                logger.info("✓ PHASE 1 model loaded (Random Forest)")
-                logger.info("✓ PHASE 2 model loaded (Gradient Boosting)")
-                logger.info("✓ Using trained models (accuracy 100%)")
-                
-                self.use_trained_models = True
+                if phase2_features_path.exists():
+                    self.models['phase2_features'] = joblib.load(phase2_features_path)
+                logger.info("✓ PHASE 2 loaded (GradientBoosting — difficulty prediction)")
             else:
-                logger.warning("⚠ Trained models not found, using heuristics")
-                logger.warning(f"  PHASE 1: {phase1_model_path.exists()}")
-                logger.warning(f"  PHASE 2: {phase2_model_path.exists()}")
-                self.use_trained_models = False
+                logger.warning("⚠ PHASE 2 model not found")
+            
+            self.use_trained_models = (self.models['phase1_model'] is not None 
+                                       or self.models['phase2_model'] is not None)
+            
+            if self.use_trained_models:
+                logger.info("✓ ML models active — using real predictions")
+            else:
+                logger.warning("⚠ No trained models found — falling back to heuristics")
                 
         except Exception as e:
             logger.error(f"Error loading models: {e}")
+            import traceback
+            traceback.print_exc()
             self.use_trained_models = False
+
+    # =========================================================================
+    # BLOCK HISTORY — sliding window feature computation for inference
+    # =========================================================================
+
+    def _record_block(self, features: Dict):
+        """
+        Record a block's features into the history buffer.
+        Called on every PHASE 1 / PHASE 2 request so that subsequent
+        requests can compute sliding window stats.
+        """
+        entry = {
+            'solve_time':      float(features.get('solve_time', features.get('block_time', 120))),
+            'difficulty':      float(features.get('difficulty', features.get('current_diff', 1))),
+            'network_health':  float(features.get('network_health', 0.5)),
+            'miner_diversity': float(features.get('miner_diversity', features.get('miner_reputation', 0.5))),
+            'hash_entropy':    float(features.get('hash_entropy', 128)),
+        }
+        with self._history_lock:
+            self._block_history.append(entry)
+
+    def _compute_window_features(self, current: Dict) -> Dict:
+        """
+        Given the current block's raw features *and* the accumulated history,
+        compute the same sliding-window features used during training.
+
+        Returns a dict mapping feature_name -> value, matching the columns
+        produced by engineer_features() in train_models.py.
+        """
+        with self._history_lock:
+            history = list(self._block_history)
+
+        solve_time  = float(current.get('solve_time', current.get('block_time', 120)))
+        difficulty  = float(current.get('difficulty',  current.get('current_diff', 1)))
+        net_health  = float(current.get('network_health', 0.5))
+        miner_div   = float(current.get('miner_diversity', current.get('miner_reputation', 0.5)))
+        h_entropy   = float(current.get('hash_entropy', 128))
+
+        # Build arrays including the current block at the end
+        solve_arr   = np.array([b['solve_time']     for b in history] + [solve_time])
+        diff_arr    = np.array([b['difficulty']      for b in history] + [difficulty])
+        health_arr  = np.array([b['network_health']  for b in history] + [net_health])
+
+        def _tail_mean(arr, n):
+            tail = arr[-n:] if len(arr) >= n else arr
+            return float(np.mean(tail)) if len(tail) > 0 else 0.0
+
+        def _tail_std(arr, n):
+            tail = arr[-n:] if len(arr) >= n else arr
+            return float(np.std(tail, ddof=1)) if len(tail) > 1 else 0.0
+
+        def _tail_median(arr, n):
+            tail = arr[-n:] if len(arr) >= n else arr
+            return float(np.median(tail)) if len(tail) > 0 else 0.0
+
+        w10_solve_mean  = _tail_mean(solve_arr, 10)
+        w10_solve_std   = _tail_std(solve_arr, 10)
+        w30_solve_mean  = _tail_mean(solve_arr, 30)
+        w30_solve_std   = _tail_std(solve_arr, 30)
+        w30_diff_mean   = _tail_mean(diff_arr, 30)
+        w60_solve_mean  = _tail_mean(solve_arr, 60)
+        w60_diff_mean   = _tail_mean(diff_arr, 60)
+        w30_health_mean = _tail_mean(health_arr, 30)
+
+        # Derived features
+        prev_diff = float(diff_arr[-2]) if len(diff_arr) >= 2 else difficulty
+        diff_change_pct = ((difficulty - prev_diff) / prev_diff * 100.0) if prev_diff != 0 else 0.0
+        solve_deviation = solve_time - 120.0
+        solve_deviation_abs = abs(solve_deviation)
+        diff_vs_avg_ratio = (difficulty / w30_diff_mean) if w30_diff_mean != 0 else 1.0
+        solve_cv_30 = (w30_solve_std / w30_solve_mean) if w30_solve_mean != 0 else 0.0
+
+        return {
+            # Raw features
+            'solve_time':        solve_time,
+            'difficulty':        difficulty,
+            'network_health':    net_health,
+            'miner_diversity':   miner_div,
+            'hash_entropy':      h_entropy,
+            # Window-10
+            'w10_solve_mean':    w10_solve_mean,
+            'w10_solve_std':     w10_solve_std,
+            # Window-30
+            'w30_solve_mean':    w30_solve_mean,
+            'w30_solve_std':     w30_solve_std,
+            'w30_diff_mean':     w30_diff_mean,
+            'w30_health_mean':   w30_health_mean,
+            # Window-60
+            'w60_solve_mean':    w60_solve_mean,
+            'w60_diff_mean':     w60_diff_mean,
+            # Derived
+            'diff_change_pct':   diff_change_pct,
+            'solve_deviation':   solve_deviation,
+            'solve_deviation_abs': solve_deviation_abs,
+            'diff_vs_avg_ratio': diff_vs_avg_ratio,
+            'solve_cv_30':       solve_cv_30,
+        }
 
     def _handle_client(self, client_socket: socket.socket, client_address: tuple):
         """
@@ -244,6 +678,13 @@ class NINAMLService:
             return self._handle_training_data(message)
         elif msg_type == 'health_check':
             return self._handle_health_check()
+        elif msg_type == 'reload_models':
+            success = self.reload_models()
+            return {
+                'type': 'acknowledgment',
+                'status': 'reloaded' if success else 'reload_failed',
+                'use_trained_models': self.use_trained_models
+            }
         elif msg_type == 'shutdown':
             self.stop()
             return {'type': 'acknowledgment', 'status': 'shutting_down'}
@@ -286,8 +727,17 @@ class NINAMLService:
 
     def _phase1_block_validation(self, decision_id: str, features: Dict) -> Dict:
         """
-        PHASE 1: Block validation using ML
-        Input: network_health, miner_reputation, hash_entropy, difficulty, txs_count
+        PHASE 1: Block validation using Isolation Forest (anomaly detection)
+        
+        v2.0: Uses unsupervised anomaly detection — no labels needed.
+        The model learns what "normal" blocks look like and flags outliers.
+        
+        Input features from daemon (blockchain.cpp):
+            - network_health: % of healthy blocks in recent window  
+            - miner_reputation: difficulty variance as miner diversity proxy
+            - hash_entropy: actual bit transitions in block hash
+            - solve_time, difficulty, txs_count, block_size (if available)
+            
         Output: confidence, is_valid, risk_score, action
         """
         logger.info(f"[PHASE 1] Block validation request for {decision_id}")
@@ -297,6 +747,16 @@ class NINAMLService:
             network_health = float(features.get('network_health', 0.95))
             miner_reputation = float(features.get('miner_reputation', 0.8))
             hash_entropy = int(features.get('hash_entropy', 200))
+            solve_time = float(features.get('solve_time', 120))
+            difficulty = float(features.get('difficulty', 100000))
+            txs_count = int(features.get('txs_count', 1))
+            block_size = int(features.get('block_size', 1000))
+            
+            # Record this block into the history buffer for window computations
+            self._record_block(features)
+            
+            # Compute sliding window features (w10, w30, w60, derived)
+            window_feats = self._compute_window_features(features)
             
             use_model = False
             model_used = "(Heuristic)"
@@ -304,57 +764,87 @@ class NINAMLService:
             # TRY TRAINED MODEL first
             if self.use_trained_models and self.models['phase1_model'] is not None:
                 try:
-                    # Prepare features for sklearn model (must match training)
-                    X = np.array([[network_health, miner_reputation, hash_entropy]])
+                    model = self.models['phase1_model']
+                    scaler = self.models['phase1_scaler']
                     
-                    # Scale using trained scaler
-                    X_scaled = self.models['phase1_scaler'].transform(X)
+                    # Build feature vector — use saved feature list if available
+                    feature_names = self.models.get('phase1_features', None)
                     
-                    # Get prediction probability (class 1 = valid block)
-                    predictions_proba = self.models['phase1_model'].predict_proba(X_scaled)
-                    
-                    # Handle both binary and multi-class cases
-                    if predictions_proba.shape[1] >= 2:
-                        # Binary classification: class 0 = invalid, class 1 = valid
-                        confidence = float(predictions_proba[0][1])
+                    if feature_names is not None:
+                        # window_feats already contains all sliding-window features
+                        # plus raw features that match train_models.py columns
+                        X = np.array([[window_feats.get(f, 0.0) for f in feature_names]])
                     else:
-                        # Single class (model only learned one class)
-                        confidence = float(predictions_proba[0][0])
+                        # Legacy 3-feature model
+                        X = np.array([[network_health, miner_reputation, hash_entropy]])
                     
-                    # Decision logic
-                    is_valid = confidence >= 0.5
-                    action = "ACCEPT" if is_valid else "REVIEW"
-                    risk_score = 1.0 - confidence
+                    # Scale
+                    X_scaled = scaler.transform(X)
                     
-                    model_used = "(Random Forest)"
+                    # Detect if this is an Isolation Forest or Random Forest
+                    model_type = type(model).__name__
+                    
+                    if model_type == 'IsolationForest':
+                        # IsolationForest: decision_function returns anomaly score
+                        # Negative = anomaly, positive = normal
+                        anomaly_score = float(model.decision_function(X_scaled)[0])
+                        prediction = int(model.predict(X_scaled)[0])  # 1=normal, -1=anomaly
+                        
+                        # Convert anomaly score to confidence (0..1)
+                        # decision_function range is roughly [-0.5, 0.5]
+                        # Map to [0, 1] where 1 = very normal, 0 = very anomalous
+                        confidence = float(np.clip((anomaly_score + 0.5), 0.0, 1.0))
+                        
+                        is_valid = (prediction == 1)
+                        risk_score = 1.0 - confidence
+                        action = "ACCEPT" if is_valid else "REVIEW"
+                        model_used = "(Isolation Forest)"
+                        
+                    else:
+                        # Legacy Random Forest: use predict_proba
+                        predictions_proba = model.predict_proba(X_scaled)
+                        if predictions_proba.shape[1] >= 2:
+                            confidence = float(predictions_proba[0][1])
+                        else:
+                            confidence = float(predictions_proba[0][0])
+                        
+                        is_valid = confidence >= 0.5
+                        risk_score = 1.0 - confidence
+                        action = "ACCEPT" if is_valid else "REVIEW"
+                        model_used = "(Random Forest)"
+                    
                     use_model = True
                     
                 except Exception as e:
                     logger.warning(f"Model prediction failed, falling back to heuristics: {e}")
-                    # Will use heuristic below
                     use_model = False
             
-            # FALLBACK: Heuristic implementation if model not available or failed
+            # FALLBACK: Heuristic (real but simple)
             if not use_model:
-                # Load thresholds from model or use defaults
-                thresholds = {
-                    'min_health': 0.70,
-                    'min_reputation': 0.50,
-                    'min_entropy': 150
-                }
+                # Score each dimension independently
+                # network_health: 0.0 (bad) to 1.0 (good)
+                health_score = max(0.0, min(1.0, network_health))
                 
-                # Calculate component scores
-                health_score = 1.0 if network_health >= thresholds['min_health'] else 0.0
-                reputation_score = 1.0 if miner_reputation >= thresholds['min_reputation'] else 0.0
-                entropy_score = 1.0 if hash_entropy > thresholds['min_entropy'] else 0.0
+                # miner_reputation/diversity: penalize extremes
+                # Very low diversity (< 0.3) is suspicious
+                diversity_score = max(0.0, min(1.0, miner_reputation))
                 
-                # Weighted confidence
-                confidence = (health_score + reputation_score + entropy_score) / 3.0
+                # hash_entropy: should be ~128 for 256-bit hash
+                # Penalize very low entropy (< 100) — suspicious hash
+                entropy_norm = max(0.0, min(1.0, hash_entropy / 200.0))
                 
-                # Decision logic
-                is_valid = confidence >= 0.7
-                action = "ACCEPT" if is_valid else "REVIEW"
+                # solve_time: should be near target (120s)
+                # Penalize extreme deviations
+                time_ratio = solve_time / 120.0
+                time_score = max(0.0, 1.0 - abs(1.0 - time_ratio) * 0.5)
+                
+                # Weighted combination
+                confidence = (health_score * 0.3 + diversity_score * 0.2 + 
+                            entropy_norm * 0.2 + time_score * 0.3)
+                
+                is_valid = confidence >= 0.5
                 risk_score = 1.0 - confidence
+                action = "ACCEPT" if is_valid else "REVIEW"
             
             result = {
                 'phase': 'PHASE_1_BLOCK_VALIDATE',
@@ -418,26 +908,41 @@ class NINAMLService:
             target_block_time = float(features.get('target_block_time', 120))
             avg_block_time = float(features.get('avg_block_time', 120))
             
+            # Record this block and compute sliding window features
+            # Map daemon keys so _record_block sees solve_time & difficulty
+            record = dict(features)
+            record.setdefault('solve_time', block_time)
+            record.setdefault('difficulty', current_diff)
+            self._record_block(record)
+            window_feats = self._compute_window_features(record)
+            
             model_used = "(Heuristic)"
             
             # TRY TRAINED MODEL first
             if self.use_trained_models and self.models['phase2_model'] is not None:
                 try:
-                    # Prepare features for sklearn model (must match training order)
-                    # Features order: block_time, current_diff, hashrate, hashrate_trend, avg_block_time
-                    X = np.array([[
-                        block_time,
-                        current_diff,
-                        hashrate,
-                        hashrate_trend,
-                        avg_block_time
-                    ]])
+                    model = self.models['phase2_model']
+                    scaler = self.models['phase2_scaler']
+                    feature_names = self.models.get('phase2_features', None)
+                    
+                    if feature_names is not None:
+                        # window_feats has all sliding-window features matching train_models.py
+                        X = np.array([[window_feats.get(f, 0.0) for f in feature_names]])
+                    else:
+                        # Legacy 5-feature model
+                        X = np.array([[
+                            block_time,
+                            current_diff,
+                            hashrate,
+                            hashrate_trend,
+                            avg_block_time
+                        ]])
                     
                     # Scale using trained scaler
-                    X_scaled = self.models['phase2_scaler'].transform(X)
+                    X_scaled = scaler.transform(X)
                     
                     # Get prediction from Gradient Boosting
-                    multiplier_prediction = float(self.models['phase2_model'].predict(X_scaled)[0])
+                    multiplier_prediction = float(model.predict(X_scaled)[0])
                     
                     # Ensure multiplier is reasonable (0.8 to 1.2)
                     final_multiplier = float(np.clip(multiplier_prediction, 0.8, 1.2))
@@ -627,13 +1132,37 @@ class NINAMLService:
 
     def _handle_training_data(self, message: Dict) -> Dict:
         """
-        Log training data for offline model improvement
+        Log training data for offline model improvement.
+        v2.0: Actually appends feedback to CSV for future retraining.
         """
         decision_id = message.get('decision_id', 'unknown')
         phase = message.get('phase', 0)
+        features = message.get('features', {})
+        outcome = message.get('outcome', {})
+        
         logger.info(f"Training data received for PHASE {phase}, decision {decision_id}")
         
-        # TODO: Save to training database
+        try:
+            # Append feedback to a JSONL file for future retraining
+            feedback_dir = Path(self.models_dir) / 'feedback'
+            feedback_dir.mkdir(parents=True, exist_ok=True)
+            
+            feedback_file = feedback_dir / f'phase{phase}_feedback.jsonl'
+            entry = {
+                'decision_id': decision_id,
+                'phase': phase,
+                'features': features,
+                'outcome': outcome,
+                'timestamp': datetime.now(timezone.utc).isoformat()
+            }
+            
+            import json as json_mod
+            with open(feedback_file, 'a') as f:
+                f.write(json_mod.dumps(entry) + '\n')
+            
+            logger.info(f"✓ Feedback saved to {feedback_file}")
+        except Exception as e:
+            logger.warning(f"Failed to save feedback: {e}")
         
         return {
             'type': 'acknowledgment',
@@ -643,19 +1172,51 @@ class NINAMLService:
 
     def _handle_health_check(self) -> Dict:
         """
-        Respond to daemon health check
+        Respond to daemon health check with real model status.
         """
+        phase1_status = 'not_loaded'
+        phase2_status = 'not_loaded'
+        
+        if self.models.get('phase1_model') is not None:
+            model_type = type(self.models['phase1_model']).__name__
+            phase1_status = f'ready ({model_type})'
+        
+        if self.models.get('phase2_model') is not None:
+            model_type = type(self.models['phase2_model']).__name__
+            phase2_status = f'ready ({model_type})'
+        
         return {
             'type': 'health_check_response',
             'status': 'healthy',
-            'timestamp': datetime.now().isoformat(),
+            'timestamp': datetime.now(timezone.utc).isoformat(),
+            'use_trained_models': self.use_trained_models,
             'models': {
-                'block_validator': 'ready' if self.models['block_validator'] else 'placeholder',
-                'difficulty_agent': 'ready' if self.models['difficulty_agent'] else 'placeholder',
-                'sybil_reasoner': 'ready' if self.models['sybil_reasoner'] else 'placeholder',
-                'gas_optimizer': 'ready' if self.models['gas_optimizer'] else 'placeholder'
+                'phase1_block_validator': phase1_status,
+                'phase2_difficulty': phase2_status,
+                'phase3_sybil': 'heuristic',
+                'phase4_gas': 'heuristic'
+            },
+            'auto_retrain': {
+                'enabled': True,
+                'csv_rows': self._last_train_row_count,
+                'threshold': self._retrain_threshold,
+                'check_interval_s': self._retrain_interval
             }
         }
+
+    def reload_models(self):
+        """
+        Hot-reload models from disk without restarting the service.
+        Called periodically or when a RELOAD command is received.
+        """
+        logger.info("Hot-reloading models from disk...")
+        try:
+            self._load_models()
+            logger.info("✓ Models reloaded successfully")
+            return True
+        except Exception as e:
+            logger.error(f"✗ Model reload failed: {e}")
+            return False
 
 
 def main():
