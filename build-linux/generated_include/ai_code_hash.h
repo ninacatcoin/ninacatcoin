@@ -4,7 +4,7 @@
 // This hash is compiled into the binary so all nodes running
 // the same version can verify each other's code integrity via P2P.
 //
-// Build timestamp: 2026-02-20 16:28:28 UTC
+// Build timestamp: 2026-02-20 17:03:23 UTC
 // Files hashed: 19
 
 #pragma once
@@ -13,13 +13,13 @@ namespace ninacatcoin_ai {
 
 // SHA-256 of all AI source files, calculated at compile time
 static constexpr const char* AI_COMPILED_CODE_HASH =
-    "9d14c3e5a15d3b4e7e997ed53b0b4b8ab6f0dc956c9cacaad54837c5aa3b918a";
+    "63049b7cb230722e61d2ccb8b098024bd29e50075faf60b5c4fbe449c9331b71";
 
 // Number of source files included in the hash
 static constexpr int AI_COMPILED_FILE_COUNT = 19;
 
 // Build timestamp for this hash
 static constexpr const char* AI_HASH_BUILD_TIME =
-    "2026-02-20 16:28:28 UTC";
+    "2026-02-20 17:03:23 UTC";
 
 } // namespace ninacatcoin_ai

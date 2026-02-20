@@ -256,6 +256,8 @@ std::string IntegrityVerifier::calculateCombinedHash(
 ) {
     // Read all files and concatenate, then SHA-256 the result
     // This matches what cmake/GenerateAIHash.cmake does at build time
+    // IMPORTANT: CMake's file(READ) converts CRLF→LF automatically,
+    // so we must strip \r to match the compile-time hash on Windows/NTFS.
     std::string combined;
 
     for (const auto& filepath : files) {
@@ -266,7 +268,10 @@ std::string IntegrityVerifier::calculateCombinedHash(
         }
         std::stringstream ss;
         ss << file.rdbuf();
-        combined += ss.str();
+        std::string content = ss.str();
+        // Normalize line endings: strip \r so CRLF becomes LF (matches CMake)
+        content.erase(std::remove(content.begin(), content.end(), '\r'), content.end());
+        combined += content;
     }
 
     if (combined.empty()) {
