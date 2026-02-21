@@ -5,6 +5,11 @@
 #include <sstream>
 #include <iomanip>
 
+using ninacatcoin_ai::AIHashrateRecoveryMonitor;
+using HashrateKnowledge = AIHashrateRecoveryMonitor::HashrateKnowledge;
+using DifficultyState = AIHashrateRecoveryMonitor::DifficultyState;
+using EDAEvent = AIHashrateRecoveryMonitor::EDAEvent;
+
 // Global IA Knowledge Base
 static HashrateKnowledge g_hashrate_knowledge;
 static bool g_hashrate_learning_initialized = false;
@@ -176,7 +181,7 @@ bool AIHashrateRecoveryMonitor::ia_detect_recovery_in_progress(
 // LEARNING: EDA Events
 // =====================================================================
 
-void ninacatcoin_ai::ia_learn_eda_event(
+void AIHashrateRecoveryMonitor::ia_learn_eda_event(
     uint64_t height,
     uint64_t actual_solve_time,
     uint64_t base_difficulty)
@@ -209,7 +214,7 @@ void ninacatcoin_ai::ia_learn_eda_event(
   g_hashrate_knowledge.eda_events.push_back(eda_event);
   g_hashrate_knowledge.eda_activation_count++;
 
-  MGWARN("IA: EDA Event #" << g_hashrate_knowledge.eda_activation_count 
+  MWARNING("IA: EDA Event #" << g_hashrate_knowledge.eda_activation_count 
          << " at height " << height << ": " << eda_event.reason);
 }
 
@@ -441,6 +446,7 @@ void AIHashrateRecoveryMonitor::ia_log_hashrate_status(const HashrateKnowledge& 
   report << "\nRecovery Events Tracked: " << knowledge.recovery_events.size() << "\n";
 
   MGINFO(report.str());
+}
 
 // =====================================================================
 // CALCULATION: Optimal Difficulty
@@ -882,7 +888,7 @@ std::string ninacatcoin_ai::AIHashrateRecoveryMonitor::nina_detect_checkpoint_fo
   statement << "║ MINERS: Do NOT mine until fork is resolved!\n";
   statement << "╚════════════════════════════════════════════════════╝\n";
   
-  MCRITICAL(statement.str());
+  MERROR(statement.str());
   return statement.str();
 }
 
@@ -917,7 +923,7 @@ std::string ninacatcoin_ai::AIHashrateRecoveryMonitor::nina_validate_checkpoint_
     statement << "║         CRITICAL ALERT broadcast\n";
     statement << "╚════════════════════════════════════════════════════╝\n";
     
-    MCRITICAL(statement.str());
+    MERROR(statement.str());
     return statement.str();
   }
 
@@ -1050,7 +1056,7 @@ std::string ninacatcoin_ai::AIHashrateRecoveryMonitor::nina_monitor_checkpoint_g
   statement << "╚════════════════════════════════════════════════════╝\n";
   
   if (time_since_last_update > CRITICAL_THRESHOLD) {
-    MCRITICAL(statement.str());
+    MERROR(statement.str());
   } else if (time_since_last_update > WARNING_THRESHOLD) {
     MWARNING(statement.str());
   } else {
@@ -1128,7 +1134,7 @@ std::string ninacatcoin_ai::AIHashrateRecoveryMonitor::nina_verify_seed_consensu
   statement << "╚════════════════════════════════════════════════════╝\n";
   
   if (std::abs(epoch_diff) > 5) {
-    MCRITICAL(statement.str());
+    MERROR(statement.str());
   } else if (std::abs(epoch_diff) > 3) {
     MWARNING(statement.str());
   } else {
@@ -1202,7 +1208,7 @@ std::string ninacatcoin_ai::AIHashrateRecoveryMonitor::nina_predict_next_checkpo
   statement << "╚════════════════════════════════════════════════════╝\n";
   
   if (time_until_next < -CRITICAL_OFFSET) {
-    MCRITICAL(statement.str());
+    MERROR(statement.str());
   } else if (time_until_next < -WARN_OFFSET) {
     MWARNING(statement.str());
   } else {
@@ -1327,7 +1333,7 @@ std::string ninacatcoin_ai::AIHashrateRecoveryMonitor::nina_enforce_checkpoint_c
   if (consensus_reached) {
     MGINFO(statement.str());
   } else {
-    MCRITICAL(statement.str());
+    MERROR(statement.str());
   }
   
   return statement.str();
@@ -1368,7 +1374,7 @@ std::string ninacatcoin_ai::AIHashrateRecoveryMonitor::nina_alert_checkpoint_com
   statement << "╚════════════════════════════════════════════════════╝\n";
   
   if (alert_severity == "CRITICAL") {
-    MCRITICAL(statement.str());
+    MERROR(statement.str());
   } else if (alert_severity == "WARNING") {
     MWARNING(statement.str());
   } else {
@@ -1431,7 +1437,7 @@ std::string ninacatcoin_ai::AIHashrateRecoveryMonitor::nina_verify_seed_node_sou
     statement << "║ THREAT: Someone is trying to inject false checkpoints!\n";
     statement << "╚════════════════════════════════════════════════════╝\n";
     
-    MCRITICAL(statement.str());
+    MERROR(statement.str());
     return statement.str();
   }
 
@@ -1643,6 +1649,6 @@ std::string ninacatcoin_ai::AIHashrateRecoveryMonitor::nina_alert_seed_node_issu
   
   statement << "╚════════════════════════════════════════════════════╝\n";
   
-  MCRITICAL(statement.str());
+  MERROR(statement.str());
   return statement.str();
 }

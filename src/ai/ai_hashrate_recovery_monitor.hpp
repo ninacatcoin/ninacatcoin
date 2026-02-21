@@ -185,17 +185,16 @@ public:
     /**
      * @brief Initialize hashrate recovery monitoring
      */
-    static HashrateKnowledge initialize_hashrate_learning();
+    static void ia_initialize_hashrate_learning();
 
     /**
      * @brief IA learns current difficulty state
      */
     static void ia_learns_difficulty_state(
-        HashrateKnowledge& knowledge,
         uint64_t height,
-        uint64_t difficulty,
+        uint64_t current_difficulty,
         uint64_t block_solve_time,
-        const std::string& state_name = "STABLE"
+        bool eda_activated = false
     );
 
     /**
@@ -210,12 +209,20 @@ public:
      * @brief IA learns EDA activation
      */
     static void ia_learn_eda_event(
-        HashrateKnowledge& knowledge,
         uint64_t height,
-        uint64_t solve_time,
-        uint64_t lwma_difficulty,
-        uint64_t final_difficulty
+        uint64_t actual_solve_time,
+        uint64_t base_difficulty
     );
+
+    /**
+     * @brief Get the global hashrate knowledge base
+     */
+    static const HashrateKnowledge& ia_get_hashrate_knowledge();
+
+    /**
+     * @brief Reset learning data (for testing/reset)
+     */
+    static void ia_reset_hashrate_learning();
 
     /**
      * @brief IA analyzes LWMA window health
@@ -587,6 +594,23 @@ public:
         uint64_t last_epoch_id,
         uint64_t last_generated_at_ts,
         uint64_t current_time
+    );
+
+    /**
+     * @brief NINA alerts about checkpoint compromise
+     */
+    static std::string nina_alert_checkpoint_compromise(
+        const std::string& threat_type,
+        uint64_t affected_height,
+        const std::string& alert_severity
+    );
+
+    /**
+     * @brief NINA alerts about seed node issues
+     */
+    static std::string nina_alert_seed_node_issue(
+        const std::string& seed_node_ip,
+        const std::string& issue_type
     );
 };
 

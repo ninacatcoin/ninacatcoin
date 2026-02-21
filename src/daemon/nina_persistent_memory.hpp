@@ -122,8 +122,11 @@ private:
     std::string m_db_path;
     bool m_open = false;
 
-    // 64 MB map size — more than enough for NINA state
-    static constexpr size_t DB_MAP_SIZE = 64ULL * 1024 * 1024;
+    // 1 GB initial map size (~40 years of NINA memory at ~25 MB/year)
+    // Auto-grows by 1 GB when limit is reached
+    static constexpr size_t DB_MAP_SIZE_INITIAL = 1ULL * 1024 * 1024 * 1024;
+    static constexpr size_t DB_MAP_SIZE_INCREMENT = 1ULL * 1024 * 1024 * 1024;
+    size_t m_current_map_size = DB_MAP_SIZE_INITIAL;
 
     std::string resolve_db_path() const {
         const char* home = std::getenv("HOME");
@@ -208,7 +211,7 @@ private:
             return false;
         }
 
-        rc = mdb_env_set_mapsize(m_env, DB_MAP_SIZE);
+        rc = mdb_env_set_mapsize(m_env, m_current_map_size);
         if (rc) {
             std::cerr << "[NINA-LMDB] Failed to set mapsize: " << mdb_strerror(rc) << std::endl;
             mdb_env_close(m_env); m_env = nullptr;
@@ -251,7 +254,23 @@ private:
         }
 
         m_open = true;
-        std::cout << "[NINA-LMDB] ✓ Database opened at " << m_db_path << "/data.mdb" << std::endl;
+        std::cout << "[NINA-LMDB] ✓ Database opened at " << m_db_path << "/data.mdb"
+                  << " (map size: " << (m_current_map_size / (1024*1024)) << " MB)" << std::endl;
+        return true;
+    }
+
+    // Auto-grow: increase map size by 1 GB when MDB_MAP_FULL is detected
+    bool grow_map_size() {
+        if (!m_env) return false;
+        
+        size_t new_size = m_current_map_size + DB_MAP_SIZE_INCREMENT;
+        
+        // Close all DBIs first, then resize
+        mdb_env_set_mapsize(m_env, new_size);
+        m_current_map_size = new_size;
+        
+        std::cout << "[NINA-LMDB] ⚡ Map size auto-grown to "
+                  << (m_current_map_size / (1024*1024)) << " MB" << std::endl;
         return true;
     }
 
@@ -322,6 +341,15 @@ public:
             }
 
             rc = mdb_txn_commit(txn);
+            if (rc == MDB_MAP_FULL) {
+                // Auto-grow and retry once
+                std::cout << "[NINA-LMDB] Map full, auto-growing..." << std::endl;
+                if (grow_map_size()) {
+                    return persist_nina_state(current_height, block_history, stats);
+                }
+                std::cerr << "[NINA-LMDB] ERROR: Failed to grow map size" << std::endl;
+                return false;
+            }
             if (rc) {
                 std::cerr << "[NINA-LMDB] ERROR commit: " << mdb_strerror(rc) << std::endl;
                 return false;
@@ -423,6 +451,12 @@ public:
         }
 
         rc = mdb_txn_commit(txn);
+        if (rc == MDB_MAP_FULL) {
+            if (grow_map_size()) {
+                return persist_block_record(record);  // Retry after grow
+            }
+            return false;
+        }
         if (rc == 0) { records_saved++; return true; }
         return false;
     }

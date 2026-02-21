@@ -4,6 +4,7 @@
 
 #include "ai_module.hpp"
 #include "ai_lwma_learning.hpp"
+#include "full_integrity_verifier.hpp"
 #include <iostream>
 #include <thread>
 #include <chrono>
@@ -282,9 +283,11 @@ void AIModule::initializeMonitoring() {
 }
 
 void AIModule::monitoringLoop() {
+    int full_check_counter = 0;  // Counter for full binary integrity checks
+    
     while (is_active && current_state == ModuleState::ACTIVE) {
         try {
-            // Every 60 seconds, verify code integrity
+            // Every 60 seconds, verify AI code integrity
             std::this_thread::sleep_for(
                 std::chrono::seconds(AISecurityConfig::INTEGRITY_CHECK_INTERVAL)
             );
@@ -293,6 +296,20 @@ void AIModule::monitoringLoop() {
                 std::cerr << "[AI] Code tampering detected during monitoring!" << std::endl;
                 disable("Code integrity check failed during monitoring");
                 break;
+            }
+            
+            // Every 5 minutes (5 cycles of 60s), verify FULL binary integrity
+            full_check_counter++;
+            if (full_check_counter >= 5) {
+                full_check_counter = 0;
+                
+                auto& full_verifier = ninacatcoin_integrity::FullIntegrityVerifier::getInstance();
+                if (!full_verifier.verifyFullSourceIntegrity()) {
+                    std::cerr << "[AI] FULL BINARY tampering detected during monitoring!" << std::endl;
+                    std::cerr << "[AI] Auto-remediation from GitHub triggered!" << std::endl;
+                    // Don't disable — let the auto-remediation handle it
+                    // The daemon will be restarted after recompilation
+                }
             }
             
             // Verify sandboxes still active

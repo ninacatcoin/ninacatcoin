@@ -281,6 +281,30 @@ ai_forced_remediation.cpp.s:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_forced_remediation.cpp.s
 .PHONY : ai_forced_remediation.cpp.s
 
+ai_hashrate_recovery_monitor.o: ai_hashrate_recovery_monitor.cpp.o
+.PHONY : ai_hashrate_recovery_monitor.o
+
+# target to build an object file
+ai_hashrate_recovery_monitor.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_hashrate_recovery_monitor.cpp.o
+.PHONY : ai_hashrate_recovery_monitor.cpp.o
+
+ai_hashrate_recovery_monitor.i: ai_hashrate_recovery_monitor.cpp.i
+.PHONY : ai_hashrate_recovery_monitor.i
+
+# target to preprocess a source file
+ai_hashrate_recovery_monitor.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_hashrate_recovery_monitor.cpp.i
+.PHONY : ai_hashrate_recovery_monitor.cpp.i
+
+ai_hashrate_recovery_monitor.s: ai_hashrate_recovery_monitor.cpp.s
+.PHONY : ai_hashrate_recovery_monitor.s
+
+# target to generate assembly for a file
+ai_hashrate_recovery_monitor.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_hashrate_recovery_monitor.cpp.s
+.PHONY : ai_hashrate_recovery_monitor.cpp.s
+
 ai_integrity_verifier.o: ai_integrity_verifier.cpp.o
 .PHONY : ai_integrity_verifier.o
 
@@ -425,6 +449,150 @@ ai_sandbox.cpp.s:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_sandbox.cpp.s
 .PHONY : ai_sandbox.cpp.s
 
+ai_version_checker.o: ai_version_checker.cpp.o
+.PHONY : ai_version_checker.o
+
+# target to build an object file
+ai_version_checker.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_version_checker.cpp.o
+.PHONY : ai_version_checker.cpp.o
+
+ai_version_checker.i: ai_version_checker.cpp.i
+.PHONY : ai_version_checker.i
+
+# target to preprocess a source file
+ai_version_checker.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_version_checker.cpp.i
+.PHONY : ai_version_checker.cpp.i
+
+ai_version_checker.s: ai_version_checker.cpp.s
+.PHONY : ai_version_checker.s
+
+# target to generate assembly for a file
+ai_version_checker.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/ai_version_checker.cpp.s
+.PHONY : ai_version_checker.cpp.s
+
+full_integrity_verifier.o: full_integrity_verifier.cpp.o
+.PHONY : full_integrity_verifier.o
+
+# target to build an object file
+full_integrity_verifier.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/full_integrity_verifier.cpp.o
+.PHONY : full_integrity_verifier.cpp.o
+
+full_integrity_verifier.i: full_integrity_verifier.cpp.i
+.PHONY : full_integrity_verifier.i
+
+# target to preprocess a source file
+full_integrity_verifier.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/full_integrity_verifier.cpp.i
+.PHONY : full_integrity_verifier.cpp.i
+
+full_integrity_verifier.s: full_integrity_verifier.cpp.s
+.PHONY : full_integrity_verifier.s
+
+# target to generate assembly for a file
+full_integrity_verifier.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/full_integrity_verifier.cpp.s
+.PHONY : full_integrity_verifier.cpp.s
+
+nina_ia_auto_update.o: nina_ia_auto_update.cpp.o
+.PHONY : nina_ia_auto_update.o
+
+# target to build an object file
+nina_ia_auto_update.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_ia_auto_update.cpp.o
+.PHONY : nina_ia_auto_update.cpp.o
+
+nina_ia_auto_update.i: nina_ia_auto_update.cpp.i
+.PHONY : nina_ia_auto_update.i
+
+# target to preprocess a source file
+nina_ia_auto_update.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_ia_auto_update.cpp.i
+.PHONY : nina_ia_auto_update.cpp.i
+
+nina_ia_auto_update.s: nina_ia_auto_update.cpp.s
+.PHONY : nina_ia_auto_update.s
+
+# target to generate assembly for a file
+nina_ia_auto_update.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_ia_auto_update.cpp.s
+.PHONY : nina_ia_auto_update.cpp.s
+
+nina_network_optimizer.o: nina_network_optimizer.cpp.o
+.PHONY : nina_network_optimizer.o
+
+# target to build an object file
+nina_network_optimizer.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_network_optimizer.cpp.o
+.PHONY : nina_network_optimizer.cpp.o
+
+nina_network_optimizer.i: nina_network_optimizer.cpp.i
+.PHONY : nina_network_optimizer.i
+
+# target to preprocess a source file
+nina_network_optimizer.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_network_optimizer.cpp.i
+.PHONY : nina_network_optimizer.cpp.i
+
+nina_network_optimizer.s: nina_network_optimizer.cpp.s
+.PHONY : nina_network_optimizer.s
+
+# target to generate assembly for a file
+nina_network_optimizer.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_network_optimizer.cpp.s
+.PHONY : nina_network_optimizer.cpp.s
+
+nina_ring_enhancer.o: nina_ring_enhancer.cpp.o
+.PHONY : nina_ring_enhancer.o
+
+# target to build an object file
+nina_ring_enhancer.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_ring_enhancer.cpp.o
+.PHONY : nina_ring_enhancer.cpp.o
+
+nina_ring_enhancer.i: nina_ring_enhancer.cpp.i
+.PHONY : nina_ring_enhancer.i
+
+# target to preprocess a source file
+nina_ring_enhancer.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_ring_enhancer.cpp.i
+.PHONY : nina_ring_enhancer.cpp.i
+
+nina_ring_enhancer.s: nina_ring_enhancer.cpp.s
+.PHONY : nina_ring_enhancer.s
+
+# target to generate assembly for a file
+nina_ring_enhancer.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_ring_enhancer.cpp.s
+.PHONY : nina_ring_enhancer.cpp.s
+
+nina_smart_mempool.o: nina_smart_mempool.cpp.o
+.PHONY : nina_smart_mempool.o
+
+# target to build an object file
+nina_smart_mempool.cpp.o:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_smart_mempool.cpp.o
+.PHONY : nina_smart_mempool.cpp.o
+
+nina_smart_mempool.i: nina_smart_mempool.cpp.i
+.PHONY : nina_smart_mempool.i
+
+# target to preprocess a source file
+nina_smart_mempool.cpp.i:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_smart_mempool.cpp.i
+.PHONY : nina_smart_mempool.cpp.i
+
+nina_smart_mempool.s: nina_smart_mempool.cpp.s
+.PHONY : nina_smart_mempool.s
+
+# target to generate assembly for a file
+nina_smart_mempool.cpp.s:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/ai/CMakeFiles/ninacatcoin_ai.dir/build.make src/ai/CMakeFiles/ninacatcoin_ai.dir/nina_smart_mempool.cpp.s
+.PHONY : nina_smart_mempool.cpp.s
+
 # Help Target
 help:
 	@echo "The following are some of the valid targets for this Makefile:"
@@ -451,6 +619,9 @@ help:
 	@echo "... ai_forced_remediation.o"
 	@echo "... ai_forced_remediation.i"
 	@echo "... ai_forced_remediation.s"
+	@echo "... ai_hashrate_recovery_monitor.o"
+	@echo "... ai_hashrate_recovery_monitor.i"
+	@echo "... ai_hashrate_recovery_monitor.s"
 	@echo "... ai_integrity_verifier.o"
 	@echo "... ai_integrity_verifier.i"
 	@echo "... ai_integrity_verifier.s"
@@ -469,6 +640,24 @@ help:
 	@echo "... ai_sandbox.o"
 	@echo "... ai_sandbox.i"
 	@echo "... ai_sandbox.s"
+	@echo "... ai_version_checker.o"
+	@echo "... ai_version_checker.i"
+	@echo "... ai_version_checker.s"
+	@echo "... full_integrity_verifier.o"
+	@echo "... full_integrity_verifier.i"
+	@echo "... full_integrity_verifier.s"
+	@echo "... nina_ia_auto_update.o"
+	@echo "... nina_ia_auto_update.i"
+	@echo "... nina_ia_auto_update.s"
+	@echo "... nina_network_optimizer.o"
+	@echo "... nina_network_optimizer.i"
+	@echo "... nina_network_optimizer.s"
+	@echo "... nina_ring_enhancer.o"
+	@echo "... nina_ring_enhancer.i"
+	@echo "... nina_ring_enhancer.s"
+	@echo "... nina_smart_mempool.o"
+	@echo "... nina_smart_mempool.i"
+	@echo "... nina_smart_mempool.s"
 .PHONY : help
 
 

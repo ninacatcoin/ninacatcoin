@@ -108,6 +108,16 @@
 // when a large miner suddenly departs.
 #define DIFFICULTY_EDA_THRESHOLD                         6   // trigger when block > 6 * 120s = 720s
 
+// NINACOIN: NINA Local Difficulty Assist fork height
+// Activates deterministic local hashrate-trend correction (±5% max)
+// that complements LWMA by reacting faster to sudden hashrate changes.
+// Uses only blockchain data (timestamps/difficulties) — fully deterministic.
+#define NINA_LOCAL_FORK_HEIGHT                           15000
+#define NINA_LOCAL_RECENT_WINDOW                         5   // blocks for recent average
+#define NINA_LOCAL_OLDER_WINDOW                          15  // blocks for baseline average
+#define NINA_LOCAL_SMOOTHING                             0.3 // dampening factor (0-1)
+#define NINA_LOCAL_MAX_ADJUST                            0.05 // max ±5% adjustment
+
 
 #define CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1   DIFFICULTY_TARGET_V1 * CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_BLOCKS
 #define CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V2   DIFFICULTY_TARGET_V2 * CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_BLOCKS
@@ -208,10 +218,26 @@
 #define HF_VERSION_MIN_MIXIN_4                  4
 #define HF_VERSION_MIN_MIXIN_6                  6
 #define HF_VERSION_MIN_MIXIN_10                 10
-// NINACOIN: Deferred to v17 — a young blockchain doesn't have enough outputs
-// for ring size 16. Using ring size 11 (mixin 10) until a future hard fork
-// activates v17 once the blockchain has matured with sufficient outputs.
+// NINACOIN: HF-based mixin thresholds (legacy — kept as fallback)
 #define HF_VERSION_MIN_MIXIN_15                 17
+#define HF_VERSION_MIN_MIXIN_20                 255  // Not HF-gated — controlled by Adaptive Ring
+
+// ─── NINA Adaptive Ring System ──────────────────────────────────────────
+// Automatic ring size transitions based on RCT output maturity.
+// The number of RCT outputs on-chain is monotonically increasing and
+// deterministic across all nodes, making this fully consensus-safe.
+//
+//   Ring 11 (mixin 10)  →  active now (base)
+//   Ring 16 (mixin 15)  →  auto-activates at ≥ 100,000 RCT outputs
+//   Ring 21 (mixin 20)  →  auto-activates at ≥ 500,000 RCT outputs
+//
+// Grace period: during the first 5,000 outputs after a threshold,
+// both the old and new ring sizes are accepted.
+#define NINA_ADAPTIVE_RING_START_HEIGHT   15000ULL   // Activate after NINA Local fork
+#define NINA_RING_16_RCT_THRESHOLD        100000ULL  // Ring 11 → 16
+#define NINA_RING_21_RCT_THRESHOLD        500000ULL  // Ring 16 → 21
+#define NINA_RING_GRACE_OUTPUTS           5000ULL    // Transition window
+
 #define HF_VERSION_ENFORCE_RCT                  6
 #define HF_VERSION_PER_BYTE_FEE                 8
 #define HF_VERSION_SMALLER_BP                   10

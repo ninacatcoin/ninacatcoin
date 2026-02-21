@@ -227,6 +227,20 @@ ai_integrity_hash/fast:
 	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/ai_integrity_hash.dir/build.make src/CMakeFiles/ai_integrity_hash.dir/build
 .PHONY : ai_integrity_hash/fast
 
+# Convenience name for target.
+src/CMakeFiles/full_source_hash.dir/rule:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 src/CMakeFiles/full_source_hash.dir/rule
+.PHONY : src/CMakeFiles/full_source_hash.dir/rule
+
+# Convenience name for target.
+full_source_hash: src/CMakeFiles/full_source_hash.dir/rule
+.PHONY : full_source_hash
+
+# fast build rule for target.
+full_source_hash/fast:
+	cd /mnt/i/ninacatcoin/build-linux && $(MAKE) $(MAKESILENT) -f src/CMakeFiles/full_source_hash.dir/build.make src/CMakeFiles/full_source_hash.dir/build
+.PHONY : full_source_hash/fast
+
 __/version.o: __/version.cpp.o
 .PHONY : __/version.o
 
@@ -265,6 +279,7 @@ help:
 	@echo "... rebuild_cache"
 	@echo "... test"
 	@echo "... ai_integrity_hash"
+	@echo "... full_source_hash"
 	@echo "... genversion"
 	@echo "... obj_version"
 	@echo "... version"

@@ -32,9 +32,18 @@
 #include "ai/ai_checkpoint_validator.hpp"
 #include "ai/ai_hashrate_recovery_monitor.hpp"
 #include "ai/ai_checkpoint_monitor.hpp"
+#include "ai/full_integrity_verifier.hpp"
+#include "ai/ai_version_checker.hpp"
+#include "ai/nina_ia_auto_update.hpp"
+#include "version.h"
 #include "discord_notifier.hpp"
 #include "discord_ia_integration.hpp"
 #include "misc_log_ex.h"
+#include <ctime>
+#include <cstdlib>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
 #define ninacatcoin_DEFAULT_LOG_CATEGORY "daemon"
@@ -213,16 +222,57 @@ public:
             
             MINFO("[IA] ✓ Code integrity validated successfully");
             
+            // ===== FULL BINARY INTEGRITY CHECK =====
+            MINFO("[IA] Stage 4: Full Binary Integrity Verification...");
+            {
+                auto& full_verifier = ninacatcoin_integrity::FullIntegrityVerifier::getInstance();
+                full_verifier.initialize();
+                
+                // Set Discord alert callback for tampering detection
+                full_verifier.setTamperingCallback([](const std::string& compiled_hash, const std::string& disk_hash) {
+                    try {
+                        daemonize::AttackDetail attack;
+                        attack.type = daemonize::AttackType::CODE_TAMPERING;
+                        attack.type_name = "BINARY_TAMPERING";
+                        attack.severity = 5; // CRITICAL
+                        attack.timestamp = std::time(nullptr);
+                        attack.description = "Full binary source tampering detected! "
+                            "Compiled hash: " + compiled_hash.substr(0, 16) + "... "
+                            "On-disk hash: " + disk_hash.substr(0, 16) + "...";
+                        attack.details.push_back("Compiled: " + compiled_hash);
+                        attack.details.push_back("On-disk: " + disk_hash);
+                        attack.details.push_back("Auto-remediation from GitHub initiated");
+                        attack.recommendation = "Auto-remediation in progress. If it fails, manually: git pull && cmake .. && make -j2 daemon";
+                        attack.is_51_percent = false;
+                        attack.is_checkpoint_attack = false;
+                        attack.affected_height = 0;
+                        daemonize::DiscordNotifier::sendAttackAlert(attack);
+                    } catch (...) {
+                        // Don't let Discord failure block remediation
+                    }
+                });
+                
+                if (!full_verifier.verifyFullSourceIntegrity()) {
+                    MWARNING("[IA] ⚠️  Full binary integrity check detected modifications");
+                    MWARNING("[IA] Auto-remediation from GitHub has been triggered");
+                    // Don't fail daemon startup — auto-remediation handles this
+                } else {
+                    MINFO("[IA] ✅ Full binary integrity verified — ALL source files are clean");
+                }
+            }
+            
             MINFO("╔════════════════════════════════════════════════════════════╗");
             MINFO("║  ✅ IA SECURITY MODULE INITIALIZED & ACTIVE              ║");
             MINFO("║                                                            ║");
             MINFO("║  Protection Systems:                                      ║");
             MINFO("║  ✓ Filesystem Sandbox      (Access control active)       ║");
             MINFO("║  ✓ Network Sandbox         (P2P-only mode)               ║");
-            MINFO("║  ✓ Code Integrity         (SHA-256 verification)        ║");
-            MINFO("║  ✓ Remediation            (Auto-repair enabled)         ║");
+            MINFO("║  ✓ Code Integrity         (SHA-256 AI verification)     ║");
+            MINFO("║  ✓ Binary Integrity       (SHA-256 full source)         ║");
+            MINFO("║  ✓ Remediation            (Auto-repair from GitHub)     ║");
             MINFO("║  ✓ Quarantine System      (Emergency isolation ready)   ║");
             MINFO("║  ✓ Monitoring             (Continuous validation)       ║");
+            MINFO("║  ✓ Auto-Update            (GitHub version check/12h)   ║");
             MINFO("╚════════════════════════════════════════════════════════════╝");
             
             // Initialize Checkpoint Monitor
@@ -249,6 +299,120 @@ public:
             if (!initialize_discord_integration()) {
                 MWARNING("[IA] ⚠️  Discord Integration initialization warning");
                 // Don't fail daemon if Discord integration can't init
+            }
+            
+            // ===== NINA IA AUTO-UPDATE ORCHESTRATOR =====
+            // NINA IA is the intelligent decision-maker for updates.
+            // She monitors GitHub, detects forks, analyzes changes, and
+            // autonomously downloads, compiles, and installs new versions.
+            MINFO("[IA] Stage 8: Initializing NINA IA Auto-Update System...");
+            {
+                try {
+                    // Step 1: Initialize the basic VersionChecker (used internally)
+                    auto& version_checker = ninacatcoin_ai::VersionChecker::getInstance();
+                    version_checker.initialize(ninacatcoin_VERSION);
+                    
+                    // Step 2: Initialize NINA IA Auto-Update Orchestrator
+                    auto& nina_updater = ninacatcoin_ai::NinaIAAutoUpdate::getInstance();
+                    nina_updater.initialize(ninacatcoin_VERSION, 0, true); // height=0, syncing=true at startup
+                    
+                    // Step 3: Set Discord notification callback
+                    nina_updater.setNotifyCallback([](const std::string& title,
+                                                      const std::string& message,
+                                                      int severity) {
+                        try {
+                            char hostname[256] = "unknown";
+                            #ifndef _WIN32
+                            gethostname(hostname, sizeof(hostname));
+                            #endif
+                            
+                            std::string node_id = std::string(hostname);
+                            int color = 3066993; // Green
+                            std::string emoji = "🐱";
+                            if (severity >= 5) { color = 15158332; emoji = "🚨"; }      // Red
+                            else if (severity >= 4) { color = 15105570; emoji = "🔴"; }  // Orange
+                            else if (severity >= 3) { color = 16776960; emoji = "⚠️"; }  // Yellow
+                            
+                            std::string msg_safe = message.substr(0, 300);
+                            // Escape quotes for JSON
+                            std::string msg_escaped;
+                            for (char c : msg_safe) {
+                                if (c == '"') msg_escaped += "\\\"";
+                                else if (c == '\n') msg_escaped += "\\n";
+                                else if (c == '\\') msg_escaped += "\\\\";
+                                else msg_escaped += c;
+                            }
+                            
+                            std::string json_payload = 
+                                "{\"embeds\":[{"
+                                "\"title\":\"" + emoji + " " + title + "\","
+                                "\"description\":\"" + msg_escaped + "\","
+                                "\"color\":" + std::to_string(color) + ","
+                                "\"fields\":["
+                                "{\"name\":\"Node\",\"value\":\"" + node_id + "\",\"inline\":true},"
+                                "{\"name\":\"Severity\",\"value\":\"" + std::to_string(severity) + "/5\",\"inline\":true}"
+                                "],"
+                                "\"footer\":{\"text\":\"NINA IA Auto-Update System\"}"
+                                "}]}";
+                            
+                            std::string cmd = "curl -sS -X POST "
+                                "-H \"Content-Type: application/json\" "
+                                "-d '" + json_payload + "' "
+                                "\"https://discord.com/api/webhooks/1474466544653434941/XVrNU12o1Kkf1u__d7wbVFmJCHqT5iuBad13Lgvbq3SBQY4RiEeZTg7owxaPcQ0E7UCy\" "
+                                ">/dev/null 2>&1 &";
+                            std::system(cmd.c_str());
+                            
+                            // Also send to Discord alert system
+                            daemonize::AttackDetail alert;
+                            alert.type = daemonize::AttackType::CODE_TAMPERING;
+                            alert.type_name = "NINA_IA_UPDATE";
+                            alert.severity = severity;
+                            alert.timestamp = std::time(nullptr);
+                            alert.description = emoji + " NINA IA: " + message;
+                            alert.details.push_back("Node: " + node_id);
+                            alert.recommendation = "NINA IA is handling this autonomously.";
+                            alert.is_51_percent = false;
+                            alert.is_checkpoint_attack = false;
+                            alert.affected_height = 0;
+                            daemonize::DiscordNotifier::sendAttackAlert(alert);
+                        } catch (...) {}
+                    });
+                    
+                    // Step 4: Also keep VersionChecker's periodic check as fallback
+                    version_checker.setUpdateCallback([](const std::string& local_ver,
+                                                         const std::string& remote_ver,
+                                                         const std::string& notes) {
+                        // VersionChecker detects new version → let NINA IA handle it
+                        MINFO("[NINA IA] VersionChecker detecto nueva version v" << remote_ver
+                              << " — NINA IA se encargara");
+                    });
+                    version_checker.startPeriodicCheck();
+                    
+                    // Step 5: Start NINA IA autonomous monitoring
+                    nina_updater.start();
+                    
+                    MINFO("╔════════════════════════════════════════════════════════════╗");
+                    MINFO("║  🐱 NINA IA AUTO-UPDATE SYSTEM ACTIVATED                  ║");
+                    MINFO("║                                                            ║");
+                    MINFO("║  NINA IA monitoriza GitHub autonomamente:                 ║");
+                    MINFO("║  ✓ Detecta nuevas versiones (releases + tags)             ║");
+                    MINFO("║  ✓ Analiza cambios en cryptonote_config.h                ║");
+                    MINFO("║  ✓ Detecta hard forks futuros en hardforks.cpp           ║");
+                    MINFO("║  ✓ Clasifica cambios (fork/consenso/seguridad/config)    ║");
+                    MINFO("║  ✓ Decide prioridad de actualizacion (urgencia 1-10)     ║");
+                    MINFO("║  ✓ Descarga, compila e instala automaticamente           ║");
+                    MINFO("║  ✓ Reinicia daemon tras actualizacion exitosa            ║");
+                    MINFO("║  ✓ Notifica via Discord (status + alertas fork)          ║");
+                    MINFO("║                                                            ║");
+                    MINFO("║  Intervalo normal:  cada 6 horas                          ║");
+                    MINFO("║  Modo urgente:      cada 30 min (fork proximo)            ║");
+                    MINFO("║  Local: v" << ninacatcoin_VERSION << "                                          ║");
+                    MINFO("║  Fuente: github.com/ninacatcoin/ninacatcoin               ║");
+                    MINFO("╚════════════════════════════════════════════════════════════╝");
+                } catch (const std::exception& e) {
+                    MWARNING("[IA] ⚠️  NINA IA Auto-Update initialization warning: " << e.what());
+                    // Don't fail daemon if NINA IA can't init
+                }
             }
             
             return true;
@@ -281,6 +445,24 @@ public:
             }
             
             // Checkpoint Validator cleanup handled by singleton destructor
+            
+            // Stop NINA IA Auto-Update
+            MINFO("[IA] Stopping NINA IA Auto-Update...");
+            try {
+                ninacatcoin_ai::NinaIAAutoUpdate::getInstance().stop();
+                MINFO("[IA] ✓ NINA IA Auto-Update stopped");
+            } catch (...) {
+                MWARNING("[IA] Warning: NINA IA Auto-Update stop had issues");
+            }
+            
+            // Stop version checker
+            MINFO("[IA] Stopping Version Checker...");
+            try {
+                ninacatcoin_ai::VersionChecker::getInstance().stop();
+                MINFO("[IA] ✓ Version Checker stopped");
+            } catch (...) {
+                MWARNING("[IA] Warning: Version Checker stop had issues");
+            }
             
             // Then shutdown AI module
             ninacatcoin_ai::AIModule::getInstance().shutdown();

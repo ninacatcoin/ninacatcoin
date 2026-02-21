@@ -86,6 +86,9 @@ ninacatcoin_add_library(version SOURCES ${CMAKE_BINARY_DIR}/version.cpp DEPENDS 
 # Generate AI code integrity hash at compile time
 include(AIIntegrityHash)
 
+# Generate FULL SOURCE integrity hash (covers ALL source files for binary protection)
+include(FullSourceHash)
+
 add_subdirectory(common)
 add_subdirectory(crypto)
 add_subdirectory(ringct)

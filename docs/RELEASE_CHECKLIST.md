@@ -58,14 +58,14 @@
   - [ ] Release-specific testing
 - [ ] CLI reproducible builds validated
 - [ ] CLI released
-  - [ ] https://www.getninacatcoin.org/downloads/ updated
+  - [ ] https://www.ninacatcoin.es/ updated
   - [ ] Update hashes.txt on website
   - [ ] Update downloads.yml on website
   - [ ] Update auto-update DNS records
   - [ ] Update redirects on downloads box
   - [ ] Update seed nodes
 - [ ] GUI released
-  - [ ] https://www.getninacatcoin.org/downloads/ updated
+  - [ ] https://www.ninacatcoin.es/ updated
   - [ ] Update hashes.txt on website
   - [ ] Update hashes.txt.sig on website
   - [ ] Update downloads.yml on website

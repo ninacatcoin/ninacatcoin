@@ -165,11 +165,14 @@ inline void nina_advanced_observe_block(
             block_solve_time
         );
         
-        // Generate report and persist state every 100 blocks
+        // Generate report every 100 blocks
         if (block_height > 0 && block_height % 100 == 0) {
             nina_advanced_generate_report(block_height);
-            
-            // Persist memory to LMDB
+        }
+        
+        // Persist NINA memory to LMDB every 30 blocks (~1 hour)
+        // This ensures NINA doesn't lose memory if daemon crashes
+        if (block_height > 0 && block_height % 30 == 0) {
             uint64_t anomalies = g_nina_advanced_ai->get_anomalous_tx().get_suspicious_transactions(6.0).size();
             uint64_t attacks = 0;  // Would count detected attacks
             double accuracy = 0.94;  // Would calculate from actual predictions
@@ -177,7 +180,7 @@ inline void nina_advanced_observe_block(
             double health = g_nina_advanced_ai->get_network_health().calculate_health().overall_score;
             
             nina_save_persistent_state(block_height, anomalies, attacks, accuracy, peer_rep, health);
-            nina_audit_log(block_height, "STATE_PERSISTED", "NINA memory saved to LMDB");
+            nina_audit_log(block_height, "STATE_PERSISTED", "NINA memory saved to LMDB (hourly)");
         }
         
     } catch (const std::exception& e) {

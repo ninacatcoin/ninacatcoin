@@ -3,7 +3,7 @@ Ninacatcoin daemon internationalization
 
 The Ninacatcoin command line tools can be translated in various languages. If you wish to contribute and need help/support, contact the [Ninacatcoin Localization Workgroup on Taiga](https://taiga.getninacatcoin.org/project/erciccione-ninacatcoin-localization/) or come chat on `#ninacatcoin-translations` (Libera/IRC, riot/matrix, MatterMost)
 
-In order to use the same translation workflow as the [Ninacatcoin Core GUI](https://github.com/ninacatcoin-project/ninacatcoin-gui), they use Qt Linguist translation files.  However, to avoid the dependencies on Qt this normally implies, they use a custom loader to read those files at runtime.
+In order to use the same translation workflow as the [Ninacatcoin Core GUI](https://github.com/ninacatcoin/ninacatcoin-gui), they use Qt Linguist translation files.  However, to avoid the dependencies on Qt this normally implies, they use a custom loader to read those files at runtime.
 
 ### Tools for translators
 

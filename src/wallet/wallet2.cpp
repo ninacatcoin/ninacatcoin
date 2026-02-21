@@ -8561,6 +8561,33 @@ fee_algorithm wallet2::get_fee_algorithm()
 //------------------------------------------------------------------------------------------------------------------------------
 uint64_t wallet2::get_min_ring_size()
 {
+  // ─── NINA Adaptive Ring: query daemon for automatic ring sizing ───
+  // The daemon knows the RCT output count; if it exceeds a threshold,
+  // the required ring size increases automatically.
+  try {
+    cryptonote::COMMAND_RPC_GET_OUTPUT_HISTOGRAM::request req = AUTO_VAL_INIT(req);
+    cryptonote::COMMAND_RPC_GET_OUTPUT_HISTOGRAM::response resp = AUTO_VAL_INIT(resp);
+    req.amounts.push_back(0);  // amount 0 = all RCT outputs
+    req.unlocked = true;
+    req.min_count = 0;
+    req.max_count = 0;
+    {
+      const boost::lock_guard<boost::recursive_mutex> lock{m_daemon_rpc_mutex};
+      bool r = net_utils::invoke_http_json_rpc("/json_rpc", "get_output_histogram",
+          req, resp, *m_http_client, rpc_timeout);
+      if (r && resp.status == "OK" && !resp.histogram.empty()) {
+        const uint64_t num_rct = resp.histogram[0].total_instances;
+        if (num_rct >= NINA_RING_21_RCT_THRESHOLD)
+          return 21;  // Ring 21 (mixin 20)
+        if (num_rct >= NINA_RING_16_RCT_THRESHOLD)
+          return 16;  // Ring 16 (mixin 15)
+      }
+    }
+  } catch (...) {
+    // Fall through to HF-based rules if daemon query fails
+  }
+
+  // Fallback: HF-based rules
   if (use_fork_rules(HF_VERSION_MIN_MIXIN_15, 0))
     return 16;
   if (use_fork_rules(8, 10))
@@ -8576,10 +8603,33 @@ uint64_t wallet2::get_min_ring_size()
 //------------------------------------------------------------------------------------------------------------------------------
 uint64_t wallet2::get_max_ring_size()
 {
+  // ─── NINA Adaptive Ring: max ring size matches the adaptive minimum ───
+  // In CryptoNote, all inputs in a tx must use the SAME ring size,
+  // so min == max at any given point in time.
+  try {
+    cryptonote::COMMAND_RPC_GET_OUTPUT_HISTOGRAM::request req = AUTO_VAL_INIT(req);
+    cryptonote::COMMAND_RPC_GET_OUTPUT_HISTOGRAM::response resp = AUTO_VAL_INIT(resp);
+    req.amounts.push_back(0);
+    req.unlocked = true;
+    req.min_count = 0;
+    req.max_count = 0;
+    {
+      const boost::lock_guard<boost::recursive_mutex> lock{m_daemon_rpc_mutex};
+      bool r = net_utils::invoke_http_json_rpc("/json_rpc", "get_output_histogram",
+          req, resp, *m_http_client, rpc_timeout);
+      if (r && resp.status == "OK" && !resp.histogram.empty()) {
+        const uint64_t num_rct = resp.histogram[0].total_instances;
+        if (num_rct >= NINA_RING_21_RCT_THRESHOLD)
+          return 21;
+        if (num_rct >= NINA_RING_16_RCT_THRESHOLD)
+          return 16;
+      }
+    }
+  } catch (...) {}
+
+  // Fallback: HF-based rules
   if (use_fork_rules(HF_VERSION_MIN_MIXIN_15, 0))
     return 16;
-  // NINACOIN: Allow up to ring size 16 for backward compatibility with
-  // existing transactions that used mixin 15, while defaulting to 11.
   if (use_fork_rules(HF_VERSION_MIN_MIXIN_10, 10))
     return 16;
   return 0;

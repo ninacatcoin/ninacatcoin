@@ -1024,46 +1024,57 @@ difficulty_type Blockchain::get_difficulty_for_next_block()
     }
   }
 
-  // NINACOIN: PHASE 2 - ML-assisted difficulty optimization
-  // Complements LWMA and EDA with predictive hashrate trend analysis
-  if (m_nettype == MAINNET && height >= DIFFICULTY_RESET_HEIGHT && height >= DIFFICULTY_BLOCKS_COUNT)
+  // NINACOIN: NINA Local — deterministic hashrate-trend correction
+  // Compares recent block solve times vs older baseline to detect hashrate
+  // changes faster than LWMA's full window. Applies a clamped ±5% correction.
+  // Fully deterministic: uses only on-chain timestamps. No external server.
+  // Active from NINA_LOCAL_FORK_HEIGHT (hard fork).
+  if (m_nettype == MAINNET && height >= NINA_LOCAL_FORK_HEIGHT
+      && timestamps.size() >= (NINA_LOCAL_RECENT_WINDOW + NINA_LOCAL_OLDER_WINDOW))
   {
-    try
+    const size_t ts_size = timestamps.size();
+
+    // Calculate average solve time for the most recent N blocks
+    double sum_recent = 0.0;
+    for (size_t i = ts_size - NINA_LOCAL_RECENT_WINDOW; i < ts_size; ++i)
     {
-      // Get additional data for PHASE 2
-      uint64_t last_block_time = (m_db->get_block_timestamp(height - 1) > m_db->get_block_timestamp(height - 2))
-                                 ? (m_db->get_block_timestamp(height - 1) - m_db->get_block_timestamp(height - 2))
-                                 : 1;
-      
-      double current_hashrate = calculate_current_hashrate(difficulties);
-      double hashrate_trend = calculate_hashrate_trend(difficulties);
-      
-      // Call PHASE 2 to get ML-suggested adjustment
-      double phase2_multiplier = NINA_ML::suggestDifficultyAdjustment(
-        static_cast<double>(diff),
-        last_block_time,
-        timestamps,
-        current_hashrate,
-        hashrate_trend,
-        target
-      );
-      
-      // Apply PHASE 2 signal (clamp to reasonable bounds to prevent wild swings)
-      // Allow PHASE 2 to adjust by max ±5% from LWMA/EDA result
-      double phase2_clamped = std::max(0.95, std::min(1.05, phase2_multiplier));
-      difficulty_type phase2_adjusted = static_cast<difficulty_type>(static_cast<double>(diff) * phase2_clamped);
-      
-      if (phase2_adjusted < 1) phase2_adjusted = 1;
-      
-      MINFO("PHASE 2: hashrate_trend=" << std::fixed << std::setprecision(2) << hashrate_trend 
-            << "%, multiplier=" << phase2_clamped << ", adjusted_diff=" << phase2_adjusted);
-      
-      diff = phase2_adjusted;
+      uint64_t st = (timestamps[i] > timestamps[i - 1]) ? (timestamps[i] - timestamps[i - 1]) : 1;
+      sum_recent += static_cast<double>(st);
     }
-    catch (const std::exception& e)
+    double avg_recent = sum_recent / NINA_LOCAL_RECENT_WINDOW;
+
+    // Calculate average solve time for the older baseline window
+    size_t older_end   = ts_size - NINA_LOCAL_RECENT_WINDOW;
+    size_t older_start = older_end - NINA_LOCAL_OLDER_WINDOW;
+    double sum_older = 0.0;
+    for (size_t i = older_start + 1; i <= older_end; ++i)
     {
-      MERROR("PHASE 2 error: " << e.what() << " - continuing with LWMA result");
-      // If PHASE 2 fails, continue with LWMA result without adjustment
+      uint64_t st = (timestamps[i] > timestamps[i - 1]) ? (timestamps[i] - timestamps[i - 1]) : 1;
+      sum_older += static_cast<double>(st);
+    }
+    double avg_older = sum_older / NINA_LOCAL_OLDER_WINDOW;
+
+    // ratio > 1 means recent blocks are faster → hashrate went up → raise difficulty
+    // ratio < 1 means recent blocks are slower → hashrate went down → lower difficulty
+    if (avg_recent > 0.0)
+    {
+      double ratio = avg_older / avg_recent;
+      double raw_adjust = 1.0 + (ratio - 1.0) * NINA_LOCAL_SMOOTHING;
+
+      // Clamp to ±NINA_LOCAL_MAX_ADJUST (default ±5%)
+      double nina_clamped = std::max(1.0 - NINA_LOCAL_MAX_ADJUST,
+                                     std::min(1.0 + NINA_LOCAL_MAX_ADJUST, raw_adjust));
+
+      difficulty_type nina_adjusted = static_cast<difficulty_type>(
+          static_cast<double>(diff) * nina_clamped);
+      if (nina_adjusted < 1) nina_adjusted = 1;
+
+      MINFO("NINA-LOCAL: avg_recent_" << NINA_LOCAL_RECENT_WINDOW << "=" << std::fixed
+            << std::setprecision(1) << avg_recent << "s, avg_older_" << NINA_LOCAL_OLDER_WINDOW
+            << "=" << avg_older << "s, ratio=" << std::setprecision(3) << ratio
+            << ", multiplier=" << nina_clamped << ", diff " << diff << " -> " << nina_adjusted);
+
+      diff = nina_adjusted;
     }
   }
 
@@ -3472,7 +3483,34 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
     size_t n_unmixable = 0, n_mixable = 0;
     size_t min_actual_mixin = std::numeric_limits<size_t>::max();
     size_t max_actual_mixin = 0;
-    const size_t min_mixin = hf_version >= HF_VERSION_MIN_MIXIN_15 ? 15 : hf_version >= HF_VERSION_MIN_MIXIN_10 ? 10 : hf_version >= HF_VERSION_MIN_MIXIN_6 ? 6 : hf_version >= HF_VERSION_MIN_MIXIN_4 ? 4 : 2;
+    // Base mixin from hard fork rules
+    size_t min_mixin = hf_version >= HF_VERSION_MIN_MIXIN_15 ? 15 : hf_version >= HF_VERSION_MIN_MIXIN_10 ? 10 : hf_version >= HF_VERSION_MIN_MIXIN_6 ? 6 : hf_version >= HF_VERSION_MIN_MIXIN_4 ? 4 : 2;
+
+    // ─── NINA Adaptive Ring: auto-upgrade based on RCT output count ───
+    // get_num_outputs(0) returns the total RCT outputs on-chain.
+    // This count is monotonically increasing and identical across all nodes,
+    // ensuring deterministic consensus on the required ring size.
+    size_t nina_prev_mixin = min_mixin;
+    bool nina_grace = false;
+    if (m_db->height() >= NINA_ADAPTIVE_RING_START_HEIGHT)
+    {
+      const uint64_t num_rct = m_db->get_num_outputs(0);
+      if (num_rct >= NINA_RING_21_RCT_THRESHOLD) {
+        nina_prev_mixin = 15;
+        min_mixin = std::max(min_mixin, static_cast<size_t>(20));
+        nina_grace = (num_rct < NINA_RING_21_RCT_THRESHOLD + NINA_RING_GRACE_OUTPUTS);
+      } else if (num_rct >= NINA_RING_16_RCT_THRESHOLD) {
+        nina_prev_mixin = 10;
+        min_mixin = std::max(min_mixin, static_cast<size_t>(15));
+        nina_grace = (num_rct < NINA_RING_16_RCT_THRESHOLD + NINA_RING_GRACE_OUTPUTS);
+      }
+      if (min_mixin > static_cast<size_t>(hf_version >= HF_VERSION_MIN_MIXIN_15 ? 15 : 10)) {
+        MINFO("NINA Adaptive Ring: requiring mixin " << min_mixin
+              << " (ring " << (min_mixin + 1) << ") based on " << m_db->get_num_outputs(0) << " RCT outputs"
+              << (nina_grace ? " [grace period active]" : ""));
+      }
+    }
+
     for (const auto& txin : tx.vin)
     {
       // non txin_to_key inputs will be rejected below
@@ -3515,36 +3553,63 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
       }
     }
 
-    // The only circumstance where ring sizes less than expected are
-    // allowed is when spending unmixable non-RCT outputs in the chain.
-    // Caveat: at HF_VERSION_MIN_MIXIN_15, temporarily allow ring sizes
-    // of 11 to allow a grace period in the transition to larger ring size.
-    if (min_actual_mixin < min_mixin && !(hf_version == HF_VERSION_MIN_MIXIN_15 && min_actual_mixin == 10))
+    // ─── NINA: Unified ring size validation ────────────────────────────
+    // Accepted mixin values:
+    //   1. Exact match with required min_mixin
+    //   2. NINA Adaptive grace: previous ring size during transition window
+    //   3. HF-based grace: at HF_VERSION_MIN_MIXIN_15, also accept mixin 10
+    //   4. Young chain compat: HF12..HF16, accept mixin 10 or 15
+    //      (but NOT below adaptive minimum after grace period)
+    //   5. Unmixable exception: below required, but ≤1 mixable input
     {
-      if (n_unmixable == 0)
+      bool mixin_ok = (min_actual_mixin == min_mixin);
+
+      // NINA Adaptive Ring grace period: accept previous ring size
+      if (!mixin_ok && nina_grace && min_actual_mixin == nina_prev_mixin)
+        mixin_ok = true;
+
+      // HF-based grace: at HF_VERSION_MIN_MIXIN_15, accept mixin 10
+      if (!mixin_ok && hf_version == HF_VERSION_MIN_MIXIN_15 && min_actual_mixin == 10)
+        mixin_ok = true;
+
+      // Young chain compatibility: HF12..HF16, accept both mixin 10 and 15
+      // but not below adaptive minimum (once adaptive raises it)
+      if (!mixin_ok && hf_version < HF_VERSION_MIN_MIXIN_15
+          && hf_version >= HF_VERSION_MIN_MIXIN_10 + 2)
       {
-        MERROR_VER("Tx " << get_transaction_hash(tx) << " has too low ring size (" << (min_actual_mixin + 1) << "), and no unmixable inputs");
+        if (min_actual_mixin == 15 && min_mixin <= 15)
+          mixin_ok = true;
+        if (min_actual_mixin == 10 && min_mixin <= 10)
+          mixin_ok = true;
+      }
+
+      // HF10-HF11: only mixin 10 is valid
+      if (!mixin_ok && (hf_version == HF_VERSION_MIN_MIXIN_10
+          || hf_version == HF_VERSION_MIN_MIXIN_10 + 1)
+          && min_actual_mixin == 10)
+        mixin_ok = true;
+
+      // Unmixable outputs exception (legacy pre-RCT)
+      if (!mixin_ok && min_actual_mixin < min_mixin
+          && n_unmixable > 0 && n_mixable <= 1)
+        mixin_ok = true;
+
+      if (!mixin_ok)
+      {
+        if (min_actual_mixin < min_mixin)
+        {
+          MERROR_VER("Tx " << get_transaction_hash(tx) << " has too low ring size ("
+                    << (min_actual_mixin + 1) << "), required " << (min_mixin + 1)
+                    << (nina_grace ? " (grace also accepts " + std::to_string(nina_prev_mixin + 1) + ")" : ""));
+        }
+        else
+        {
+          MERROR_VER("Tx " << get_transaction_hash(tx) << " has invalid ring size ("
+                    << (min_actual_mixin + 1) << "), required " << (min_mixin + 1));
+        }
         tvc.m_low_mixin = true;
         return false;
       }
-      if (n_mixable > 1)
-      {
-        MERROR_VER("Tx " << get_transaction_hash(tx) << " has too low ring size (" << (min_actual_mixin + 1) << "), and more than one mixable input with unmixable inputs");
-        tvc.m_low_mixin = true;
-        return false;
-      }
-    } else if ((hf_version > HF_VERSION_MIN_MIXIN_15 && min_actual_mixin > 15)
-      || (hf_version == HF_VERSION_MIN_MIXIN_15 && min_actual_mixin != 15 && min_actual_mixin != 10) // grace period to allow either 15 or 10
-      // NINACOIN: For v16 (young blockchain), accept both mixin 10 (new) and mixin 15 (legacy).
-      // This preserves backward compatibility with existing transactions that used ring size 16,
-      // while allowing new transactions to use ring size 11 since there aren't enough outputs yet.
-      || (hf_version < HF_VERSION_MIN_MIXIN_15 && hf_version >= HF_VERSION_MIN_MIXIN_10+2 && min_actual_mixin != 10 && min_actual_mixin != 15)
-      || ((hf_version == HF_VERSION_MIN_MIXIN_10 || hf_version == HF_VERSION_MIN_MIXIN_10+1) && min_actual_mixin != 10)
-    )
-    {
-      MERROR_VER("Tx " << get_transaction_hash(tx) << " has invalid ring size (" << (min_actual_mixin + 1) << "), it should be " << (min_mixin + 1));
-      tvc.m_low_mixin = true;
-      return false;
     }
 
     // min/max tx version based on HF, and we accept v1 txes if having a non mixable
@@ -4788,7 +4853,7 @@ leave:
       block_solve_time = (bl.timestamp > prev_block.timestamp) ?
                          (bl.timestamp - prev_block.timestamp) : 120;
     }
-    // Compute features matching extract_training_data.py format
+    // Compute features matching tools/extract_training_data.py format
     double net_health = 0.95;
     double miner_div = 0.5;
     int hash_ent = 128;

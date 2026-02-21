@@ -40,8 +40,20 @@ add_library(ninacatcoin_ai STATIC
   ai_lwma_learning.cpp
   ai_auto_updater.hpp
   ai_auto_updater.cpp
-  # ai_hashrate_recovery_monitor.hpp
-  # ai_hashrate_recovery_monitor.cpp
+  ai_version_checker.hpp
+  ai_version_checker.cpp
+  full_integrity_verifier.hpp
+  full_integrity_verifier.cpp
+  ai_hashrate_recovery_monitor.hpp
+  ai_hashrate_recovery_monitor.cpp
+  nina_smart_mempool.hpp
+  nina_smart_mempool.cpp
+  nina_network_optimizer.hpp
+  nina_network_optimizer.cpp
+  nina_ring_enhancer.hpp
+  nina_ring_enhancer.cpp
+  nina_ia_auto_update.hpp
+  nina_ia_auto_update.cpp
 )
 
 target_include_directories(ninacatcoin_ai
@@ -82,6 +94,11 @@ if(TARGET ai_integrity_hash)
   add_dependencies(ninacatcoin_ai ai_integrity_hash)
 endif()
 
+# Ensure full source hash header is generated before compiling
+if(TARGET full_source_hash)
+  add_dependencies(ninacatcoin_ai full_source_hash)
+endif()
+
 # Install headers
 ninacatcoin_install_headers("ai"
   ai_config.hpp
@@ -91,6 +108,8 @@ ninacatcoin_install_headers("ai"
   ai_integrity_verifier.hpp
   ai_forced_remediation.hpp
   ai_quarantine_system.hpp
+  ai_version_checker.hpp
+  full_integrity_verifier.hpp
 )
 
 # Set source group for IDE

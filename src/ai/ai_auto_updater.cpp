@@ -152,23 +152,29 @@ bool AutoUpdater::performUpdate(const std::string& expected_hash) {
     }
 
     // Step 2: Verify source hash BEFORE compiling (fast check)
-    std::string source_hash = calculateSourceHash(source_dir);
-    if (source_hash.empty()) {
-        setStatus("❌ Failed to calculate hash of downloaded source");
-        return false;
+    // If expected_hash is empty, this is a full-source remediation from GitHub
+    // (local tampering detected) — skip hash comparison, trust GitHub directly
+    if (!expected_hash.empty()) {
+        std::string source_hash = calculateSourceHash(source_dir);
+        if (source_hash.empty()) {
+            setStatus("❌ Failed to calculate hash of downloaded source");
+            return false;
+        }
+
+        setStatus("Downloaded source hash: " + source_hash.substr(0, 16) + "...");
+
+        if (source_hash != expected_hash) {
+            setStatus("❌ Source hash does NOT match consensus! Possible supply-chain attack.");
+            setStatus("   Expected: " + expected_hash);
+            setStatus("   Got:      " + source_hash);
+            setStatus("   Update ABORTED for security");
+            return false;
+        }
+
+        setStatus("✅ Source hash matches network consensus");
+    } else {
+        setStatus("Full-source remediation mode — trusting GitHub master branch");
     }
-
-    setStatus("Downloaded source hash: " + source_hash.substr(0, 16) + "...");
-
-    if (source_hash != expected_hash) {
-        setStatus("❌ Source hash does NOT match consensus! Possible supply-chain attack.");
-        setStatus("   Expected: " + expected_hash);
-        setStatus("   Got:      " + source_hash);
-        setStatus("   Update ABORTED for security");
-        return false;
-    }
-
-    setStatus("✅ Source hash matches network consensus");
 
     // Step 3: Build
     if (!buildProject(source_dir, build_dir)) {

@@ -536,6 +536,19 @@ ai_integrity_hash/fast:
 .PHONY : ai_integrity_hash/fast
 
 #=============================================================================
+# Target rules for targets named full_source_hash
+
+# Build rule for target.
+full_source_hash: cmake_check_build_system
+	$(MAKE) $(MAKESILENT) -f CMakeFiles/Makefile2 full_source_hash
+.PHONY : full_source_hash
+
+# fast build rule for target.
+full_source_hash/fast:
+	$(MAKE) $(MAKESILENT) -f src/CMakeFiles/full_source_hash.dir/build.make src/CMakeFiles/full_source_hash.dir/build
+.PHONY : full_source_hash/fast
+
+#=============================================================================
 # Target rules for targets named obj_common
 
 # Build rule for target.
@@ -1526,6 +1539,7 @@ help:
 	@echo "... ai_integrity_hash"
 	@echo "... doc"
 	@echo "... download_oss_fuzz"
+	@echo "... full_source_hash"
 	@echo "... generate_translations_header"
 	@echo "... genversion"
 	@echo "... blockchain_ancestry"
