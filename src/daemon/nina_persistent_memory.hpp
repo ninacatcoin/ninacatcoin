@@ -564,6 +564,12 @@ public:
     PersistenceStats get_persistence_stats() const {
         return {records_saved, records_loaded, get_db_size_kb(), 0.0};
     }
+
+    // Expose LMDB environment for direct access by learning module persistence
+    MDB_env* get_env() {
+        if (!open_env()) return nullptr;
+        return m_env;
+    }
     
 private:
     time_t last_persist_time = 0;
@@ -650,11 +656,87 @@ inline bool persist_memory_system_data(
 }
 
 inline bool persist_learning_module_data(
-    const void* metrics
+    const void* metrics_ptr
 ) {
     try {
-        nina_audit_log(0, "LEARNING_PERSIST", "Learning module data persisted");
+        if (!metrics_ptr) return false;
+        auto& mgr = NINAPersistenceManager::instance();
+
+        // Cast back to the metrics map
+        const auto* metrics = static_cast<const std::map<std::string, std::string>*>(metrics_ptr);
+
+        // Serialize all metrics into a single blob: name|val|avg|var|std|min|max|svar|cnt\n...
+        // We store under the "learning_metrics" key in nina_stats DBI
+        std::stringstream ss;
+        for (const auto& pair : *metrics) {
+            ss << pair.second << "\n";  // LearningMetric::serialize() output
+        }
+
+        // Use the manager's persist method via audit + direct LMDB write
+        // Open LMDB environment manually for learning data
+        MDB_env* env = mgr.get_env();
+        if (!env) return false;
+
+        MDB_txn* txn = nullptr;
+        int rc = mdb_txn_begin(env, nullptr, 0, &txn);
+        if (rc) return false;
+
+        MDB_dbi dbi;
+        rc = mdb_dbi_open(txn, "nina_stats", 0, &dbi);
+        if (rc) { mdb_txn_abort(txn); return false; }
+
+        std::string key = "learning_metrics";
+        std::string value = ss.str();
+        MDB_val k, v;
+        k.mv_data = const_cast<char*>(key.data());
+        k.mv_size = key.size();
+        v.mv_data = const_cast<char*>(value.data());
+        v.mv_size = value.size();
+
+        rc = mdb_put(txn, dbi, &k, &v, 0);
+        if (rc) { mdb_txn_abort(txn); return false; }
+
+        rc = mdb_txn_commit(txn);
+        if (rc) return false;
+
+        nina_audit_log(0, "LEARNING_PERSIST",
+            std::to_string(metrics->size()) + " metrics saved to LMDB");
+        std::cout << "[NINA-LMDB] \xe2\x9c\x93 Learning metrics persisted (" << metrics->size() << " metrics)" << std::endl;
         return true;
+    } catch (const std::exception& e) {
+        std::cerr << "[NINA-LMDB] ERROR persisting learning data: " << e.what() << std::endl;
+        return false;
+    }
+}
+
+inline bool load_learning_module_data(std::string& out_data) {
+    try {
+        auto& mgr = NINAPersistenceManager::instance();
+        MDB_env* env = mgr.get_env();
+        if (!env) return false;
+
+        MDB_txn* txn = nullptr;
+        int rc = mdb_txn_begin(env, nullptr, MDB_RDONLY, &txn);
+        if (rc) return false;
+
+        MDB_dbi dbi;
+        rc = mdb_dbi_open(txn, "nina_stats", 0, &dbi);
+        if (rc) { mdb_txn_abort(txn); return false; }
+
+        std::string key = "learning_metrics";
+        MDB_val k, v;
+        k.mv_data = const_cast<char*>(key.data());
+        k.mv_size = key.size();
+
+        rc = mdb_get(txn, dbi, &k, &v);
+        if (rc == 0) {
+            out_data.assign(static_cast<const char*>(v.mv_data), v.mv_size);
+            mdb_txn_abort(txn);
+            std::cout << "[NINA-LMDB] \xe2\x9c\x93 Learning metrics loaded (" << out_data.size() << " bytes)" << std::endl;
+            return true;
+        }
+        mdb_txn_abort(txn);
+        return false;
     } catch (...) {
         return false;
     }
@@ -667,6 +749,117 @@ inline bool persist_suggestion_engine_data(
         nina_audit_log(0, "SUGGESTION_PERSIST", "Suggestion engine data persisted");
         return true;
     } catch (...) {
+        return false;
+    }
+}
+
+// ============ NINA STATE EXPORT FOR P2P SHARING ============
+// Exports the full NINA state as a serialized string for P2P sync
+// Format: HEADER\nSTATS_LINE\nBLOCK_RECORD_1\nBLOCK_RECORD_2\n...
+inline std::string export_nina_state_for_p2p() {
+    try {
+        auto& mgr = NINAPersistenceManager::instance();
+        uint64_t last_height = 0;
+        std::map<uint64_t, PersistedBlockRecord> history;
+        PersistedStatistics stats{};
+
+        if (!mgr.load_nina_state(last_height, history, stats))
+            return "";
+
+        std::stringstream ss;
+        // Header line: version|last_height|timestamp
+        ss << "NINA_STATE_V1|" << last_height << "|" << static_cast<uint64_t>(std::time(nullptr)) << "\n";
+        // Stats line
+        ss << "STATS|" << stats.serialize() << "\n";
+        // Block records (limit to last 500 to keep message reasonable)
+        size_t count = 0;
+        for (auto it = history.rbegin(); it != history.rend() && count < 500; ++it, ++count) {
+            ss << "BLOCK|" << it->second.serialize() << "\n";
+        }
+        return ss.str();
+    } catch (...) {
+        return "";
+    }
+}
+
+// Import NINA state received from a peer via P2P
+// Returns true if the imported state was useful (newer/more data)
+inline bool import_nina_state_from_p2p(const std::string& data, uint64_t peer_height) {
+    try {
+        if (data.empty() || data.substr(0, 14) != "NINA_STATE_V1|")
+            return false;
+
+        auto& mgr = NINAPersistenceManager::instance();
+
+        // Load our current state to compare
+        uint64_t our_height = 0;
+        std::map<uint64_t, PersistedBlockRecord> our_history;
+        PersistedStatistics our_stats{};
+        mgr.load_nina_state(our_height, our_history, our_stats);
+
+        // Parse peer state
+        std::istringstream stream(data);
+        std::string line;
+        uint64_t peer_last_height = 0;
+        PersistedStatistics peer_stats{};
+        std::map<uint64_t, PersistedBlockRecord> peer_blocks;
+
+        while (std::getline(stream, line)) {
+            if (line.empty()) continue;
+
+            if (line.substr(0, 14) == "NINA_STATE_V1|") {
+                // Parse header
+                auto sep = line.find('|', 14);
+                if (sep != std::string::npos) {
+                    try { peer_last_height = std::stoull(line.substr(14, sep - 14)); } catch (...) {}
+                }
+            } else if (line.substr(0, 6) == "STATS|") {
+                peer_stats = PersistedStatistics::deserialize(line.substr(6));
+            } else if (line.substr(0, 6) == "BLOCK|") {
+                auto rec = PersistedBlockRecord::deserialize(line.substr(6));
+                if (rec.height > 0) {
+                    peer_blocks[rec.height] = rec;
+                }
+            }
+        }
+
+        // Only import if peer has more data than us
+        if (peer_last_height <= our_height && peer_blocks.size() <= our_history.size())
+            return false;
+
+        // Merge: add block records we don't have
+        size_t imported = 0;
+        for (const auto& [h, rec] : peer_blocks) {
+            if (our_history.find(h) == our_history.end()) {
+                our_history[h] = rec;
+                imported++;
+            }
+        }
+
+        if (imported == 0)
+            return false;
+
+        // Update stats with best values
+        PersistedStatistics merged_stats = our_stats;
+        if (peer_stats.total_blocks_processed > our_stats.total_blocks_processed)
+            merged_stats.total_blocks_processed = peer_stats.total_blocks_processed;
+        if (peer_stats.total_anomalies_detected > our_stats.total_anomalies_detected)
+            merged_stats.total_anomalies_detected = peer_stats.total_anomalies_detected;
+        if (peer_stats.average_prediction_accuracy > our_stats.average_prediction_accuracy)
+            merged_stats.average_prediction_accuracy = peer_stats.average_prediction_accuracy;
+        merged_stats.last_persistence_time = static_cast<uint64_t>(std::time(nullptr));
+
+        // Save merged state
+        uint64_t new_height = std::max(our_height, peer_last_height);
+        mgr.persist_nina_state(new_height, our_history, merged_stats);
+
+        std::cout << "[NINA-P2P-SYNC] \xe2\x9c\x93 Imported " << imported << " block records from peer"
+                  << " (our height: " << our_height << " -> " << new_height << ")" << std::endl;
+        nina_audit_log(new_height, "P2P_STATE_IMPORT",
+            "Imported " + std::to_string(imported) + " records from peer at height " + std::to_string(peer_height));
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "[NINA-P2P-SYNC] ERROR importing state: " << e.what() << std::endl;
         return false;
     }
 }

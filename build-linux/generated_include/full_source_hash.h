@@ -5,7 +5,7 @@
 // At runtime, the daemon recalculates this hash. If it differs, the source
 // has been tampered with and auto-remediation from GitHub is triggered.
 //
-// Build timestamp: 2026-02-21 02:49:42 UTC
+// Build timestamp: 2026-02-21 04:29:35 UTC
 // Files hashed: 634
 
 #pragma once
@@ -14,13 +14,13 @@ namespace ninacatcoin_integrity {
 
 // SHA-256 of ALL source files, calculated at compile time
 static constexpr const char* FULL_COMPILED_SOURCE_HASH =
-    "e33900cbcc568bbe10baa8e7876d7675a1ac950d9563a2bfd59c0e3ee11023b3";
+    "f7955b37f334d6d90e17aba16ac23e8f3aa143a71108998c307ff3b81cf55413";
 
 // Number of source files included in the hash
 static constexpr int FULL_COMPILED_FILE_COUNT = 634;
 
 // Build timestamp for this hash
 static constexpr const char* FULL_HASH_BUILD_TIME =
-    "2026-02-21 02:49:42 UTC";
+    "2026-02-21 04:29:35 UTC";
 
 } // namespace ninacatcoin_integrity

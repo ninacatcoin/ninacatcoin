@@ -4495,7 +4495,7 @@ leave:
     }
     else
     {
-      MWARNING("[NINA-ML] ML service unavailable for block " << blockchain_height 
+      MDEBUG("[NINA-ML] ML service unavailable for block " << blockchain_height 
             << " - continuing with legacy validation");
     }
   }

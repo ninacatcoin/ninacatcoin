@@ -7,12 +7,15 @@
 
 #include "ai/ai_advanced_modules.hpp"
 #include "nina_persistent_memory.hpp"
+#include "nina_learning_module.hpp"
 #include "nina_sybil_detector.hpp"
 #include "nina_constitution.hpp"
 #include "nina_complete_evolution.hpp"
 #include "nina_persistence_engine.hpp"
 #include "misc_log_ex.h"
 #include <memory>
+#include <filesystem>
+#include <fstream>
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
 #define ninacatcoin_DEFAULT_LOG_CATEGORY "nina_advanced"
@@ -39,6 +42,76 @@ inline void nina_sybil_analyze_and_alert();
 inline std::string nina_sybil_get_status();
 
 /**
+ * Load shared ML models received from peers via P2P
+ * Models are saved as .b64 files with .meta metadata in ~/.ninacatcoin/nina_shared_models/
+ */
+inline void nina_load_shared_models()
+{
+    try {
+        const char* home = std::getenv("HOME");
+        if (!home) home = std::getenv("USERPROFILE");
+        if (!home) return;
+
+        std::string model_dir = std::string(home) + "/.ninacatcoin/nina_shared_models/";
+        if (!std::filesystem::exists(model_dir)) {
+            MINFO("[NINA-MODELS] No shared models directory found (first run)");
+            return;
+        }
+
+        size_t loaded = 0;
+        for (const auto& entry : std::filesystem::directory_iterator(model_dir)) {
+            if (entry.path().extension() == ".meta") {
+                try {
+                    std::ifstream meta_file(entry.path());
+                    if (!meta_file.is_open()) continue;
+
+                    std::string line;
+                    std::string model_name = entry.path().stem().string();
+                    std::string version;
+                    uint64_t training_height = 0;
+                    uint64_t training_rows = 0;
+                    double accuracy = 0.0;
+
+                    while (std::getline(meta_file, line)) {
+                        auto eq = line.find('=');
+                        if (eq == std::string::npos) continue;
+                        std::string key = line.substr(0, eq);
+                        std::string val = line.substr(eq + 1);
+
+                        if (key == "version") version = val;
+                        else if (key == "training_height") try { training_height = std::stoull(val); } catch (...) {}
+                        else if (key == "training_rows") try { training_rows = std::stoull(val); } catch (...) {}
+                        else if (key == "accuracy") try { accuracy = std::stod(val); } catch (...) {}
+                    }
+                    meta_file.close();
+
+                    MINFO("[NINA-MODELS] Loaded shared model: " << model_name
+                          << " (height=" << training_height
+                          << ", rows=" << training_rows
+                          << ", accuracy=" << accuracy << ")");
+
+                    // Record model info in learning module metrics
+                    auto& learning = ninacatcoin_ai::NINALearningModule::getInstance();
+                    learning.recordMetric("shared_model_" + model_name + "_accuracy", accuracy);
+                    learning.recordMetric("shared_model_" + model_name + "_rows", static_cast<double>(training_rows));
+
+                    loaded++;
+                } catch (const std::exception& e) {
+                    MWARNING("[NINA-MODELS] Error loading model metadata: " << e.what());
+                }
+            }
+        }
+
+        if (loaded > 0) {
+            MINFO("[NINA-MODELS] ✓ Loaded " << loaded << " shared ML model(s) from peers");
+            nina_audit_log(0, "SHARED_MODELS_LOADED", std::to_string(loaded) + " models integrated from P2P");
+        }
+    } catch (const std::exception& e) {
+        MWARNING("[NINA-MODELS] Error scanning shared models: " << e.what());
+    }
+}
+
+/**
  * Initialize NINA Advanced AI Framework
  * Call this once during daemon startup, after basic initialization
  */
@@ -63,6 +136,18 @@ inline void initialize_nina_advanced()
         
         // Load persistent state from LMDB
         nina_load_persistent_state();
+        
+        // Load learning metrics from LMDB
+        {
+            auto& learning = ninacatcoin_ai::NINALearningModule::getInstance();
+            learning.initialize();
+            if (learning.loadFromLMDB()) {
+                MINFO("[NINA] ✓ Learning metrics restored from LMDB");
+            }
+        }
+        
+        // Load shared ML models received from peers
+        nina_load_shared_models();
         
         // Initialize NINA Constitution - fundamental governance framework
         MINFO("\n📜 LOADING NINA CONSTITUTION...");
@@ -180,7 +265,12 @@ inline void nina_advanced_observe_block(
             double health = g_nina_advanced_ai->get_network_health().calculate_health().overall_score;
             
             nina_save_persistent_state(block_height, anomalies, attacks, accuracy, peer_rep, health);
-            nina_audit_log(block_height, "STATE_PERSISTED", "NINA memory saved to LMDB (hourly)");
+            
+            // Also persist learning metrics to LMDB
+            auto& learning = ninacatcoin_ai::NINALearningModule::getInstance();
+            learning.persistToLMDB(block_height);
+            
+            nina_audit_log(block_height, "STATE_PERSISTED", "NINA memory + learning metrics saved to LMDB");
         }
         
     } catch (const std::exception& e) {

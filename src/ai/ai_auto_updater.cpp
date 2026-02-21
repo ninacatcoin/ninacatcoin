@@ -105,10 +105,19 @@ std::string AutoUpdater::getDaemonPath() const {
 }
 
 int AutoUpdater::runCommand(const std::string& cmd, int timeout_secs) {
-    std::string full_cmd = cmd;
+    std::string full_cmd;
+    // Wrap in bash -c to support shell builtins (cd, &&, etc.)
+    // Escape any single quotes in the command
+    std::string escaped_cmd = cmd;
+    size_t pos = 0;
+    while ((pos = escaped_cmd.find('\'', pos)) != std::string::npos) {
+        escaped_cmd.replace(pos, 1, "'\\''");
+        pos += 4;
+    }
     if (timeout_secs > 0) {
-        // Use timeout command on Linux
-        full_cmd = "timeout " + std::to_string(timeout_secs) + " " + cmd;
+        full_cmd = "timeout " + std::to_string(timeout_secs) + " bash -c '" + escaped_cmd + "'";
+    } else {
+        full_cmd = "bash -c '" + escaped_cmd + "'";
     }
 
     setStatus("Running: " + cmd.substr(0, 80) + (cmd.size() > 80 ? "..." : ""));
@@ -257,7 +266,8 @@ bool AutoUpdater::buildProject(const std::string& source_dir, const std::string&
     // Step 1: cmake
     setStatus("Running cmake...");
     std::string cmake_cmd = "cd \"" + build_dir + "\" && cmake \"" + source_dir
-                          + "\" -DBUILD_TESTS=OFF -DBUILD_DEBUG_UTILITIES=OFF 2>&1";
+                          + "\" -DCMAKE_BUILD_TYPE=Release -DMANUAL_SUBMODULES=1"
+                          + " -DBUILD_TESTS=OFF -DBUILD_DEBUG_UTILITIES=OFF 2>&1";
     int ret = runCommand(cmake_cmd, 120);
     if (ret != 0) {
         setStatus("cmake failed with exit code " + std::to_string(ret));

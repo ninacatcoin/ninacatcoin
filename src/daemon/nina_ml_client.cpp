@@ -104,7 +104,7 @@ bool NINAMLClient::connectSocket()
         int connect_result = ::connect(m_socket, (struct sockaddr*)&server_addr, sizeof(server_addr));
         if (connect_result == SOCKET_ERROR)
         {
-            MERROR("[NINA-ML] Connection failed to " << m_host << ":" << m_port);
+            MDEBUG("[NINA-ML] Connection failed to " << m_host << ":" << m_port);
             closesocket(m_socket);
             m_socket = INVALID_SOCKET;
             return false;
@@ -135,7 +135,7 @@ MLResponse NINAMLClient::featureRequest(
 
     if (!is_connected() && !connectSocket())
     {
-        MWARNING("[NINA-ML] ML service unavailable, using fallback validation");
+        MTRACE("[NINA-ML] ML service unavailable, using fallback validation");
         return response;
     }
 

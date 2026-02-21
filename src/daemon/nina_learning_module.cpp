@@ -171,9 +171,13 @@ bool NINALearningModule::persistToLMDB(uint64_t current_height) {
         std::cout << "[NINA-Learning]   Attack Probability: " << (overall_attack_probability * 100.0) << "%" << std::endl;
         std::cout << "[NINA-Learning]   Anomalía Count: " << anomaly_count << std::endl;
         
-        // Llamar a persistencia
+        // Llamar a persistencia con serialized metric strings
+        std::map<std::string, std::string> serialized_metrics;
+        for (const auto& metric : metrics) {
+            serialized_metrics[metric.first] = metric.second.serialize();
+        }
         daemonize::persist_learning_module_data(
-            (void*)&metrics
+            (void*)&serialized_metrics
         );
         
         // Auditar evento
@@ -197,15 +201,55 @@ bool NINALearningModule::persistToLMDB(uint64_t current_height) {
 bool NINALearningModule::loadFromLMDB() {
     try {
         std::cout << "[NINA-Learning] === CARGA DE DATOS LMDB INICIADA ===" << std::endl;
-        std::cout << "[NINA-Learning] DATA.MDB: ~/.ninacatcoin/lmdb/data.mdb" << std::endl;
+        std::cout << "[NINA-Learning] DATA.MDB: ~/.ninacatcoin/nina_state/data.mdb" << std::endl;
         
-        // En implementación real:
-        // mdb_get(txn, dbi, "nina:learning:metrics", &data);
-        
-        std::cout << "[NINA-Learning] ✓ " << metrics.size() << " métricas restauradas" << std::endl;
+        // Load serialized metrics from LMDB
+        std::string metrics_data;
+        if (!daemonize::load_learning_module_data(metrics_data) || metrics_data.empty()) {
+            std::cout << "[NINA-Learning] No previous learning data found (first run)" << std::endl;
+            return false;
+        }
+
+        // Parse each line as a serialized LearningMetric
+        std::istringstream stream(metrics_data);
+        std::string line;
+        size_t loaded = 0;
+
+        while (std::getline(stream, line)) {
+            if (line.empty()) continue;
+
+            // Format: metric_name|current_value|average_value|variance|std_deviation|min_value|max_value|sample_variance|sample_count
+            std::istringstream ls(line);
+            std::string token;
+            LearningMetric metric;
+            int field = 0;
+
+            while (std::getline(ls, token, '|')) {
+                try {
+                    switch (field++) {
+                        case 0: metric.metric_name = token; break;
+                        case 1: metric.current_value = std::stod(token); break;
+                        case 2: metric.average_value = std::stod(token); break;
+                        case 3: metric.variance = std::stod(token); break;
+                        case 4: metric.std_deviation = std::stod(token); break;
+                        case 5: metric.min_value = std::stod(token); break;
+                        case 6: metric.max_value = std::stod(token); break;
+                        case 7: metric.sample_variance = std::stod(token); break;
+                        case 8: metric.sample_count = std::stoull(token); break;
+                    }
+                } catch (...) {}
+            }
+
+            if (!metric.metric_name.empty() && field >= 9) {
+                metrics[metric.metric_name] = metric;
+                loaded++;
+            }
+        }
+
+        std::cout << "[NINA-Learning] ✓ " << loaded << " métricas restauradas desde LMDB" << std::endl;
         std::cout << "[NINA-Learning] === CARGA COMPLETADA ===" << std::endl;
         
-        return true;
+        return loaded > 0;
     } catch (const std::exception& e) {
         std::cout << "[NINA-Learning] Advertencia: No se pudo cargar estado anterior: " << e.what() << std::endl;
         return false;

@@ -50,6 +50,7 @@
 #include "profile_tools.h"
 #include "ai/ai_integrity_verifier.hpp"
 #include "ai/ai_auto_updater.hpp"
+#include "daemon/nina_persistent_memory.hpp"
 #include "net/network_throttle-detail.hpp"
 #include "common/pruning.h"
 #include "common/util.h"
@@ -1161,6 +1162,110 @@ namespace cryptonote
     });
 
     MINFO("[NINA-MODEL] Relayed " << arg.models.size() << " model(s) to " << relayed << " peers");
+    return true;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA State Sync — receive NINA data.mdb state from peers
+  // Works like blockchain sync: shares learning state between nodes
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  int t_cryptonote_protocol_handler<t_core>::handle_notify_nina_state_sync(int command, NOTIFY_NINA_STATE_SYNC::request& arg, cryptonote_connection_context& context)
+  {
+    MINFO("[NINA-STATE-SYNC] Received state from peer: nina_height=" << arg.nina_last_height
+          << " records=" << arg.nina_block_records
+          << " sessions=" << arg.nina_session_count
+          << " data_size=" << arg.state_data.size() << " bytes"
+          << " hops=" << (int)arg.hops);
+
+    if (arg.state_data.empty())
+      return 1;
+
+    // Ignore while syncing blockchain — we need to be caught up first
+    if (!is_synchronized())
+    {
+      MDEBUG("[NINA-STATE-SYNC] Received state while syncing blockchain, ignored");
+      return 1;
+    }
+
+    // Rate limit: max 2MB of state data
+    if (arg.state_data.size() > 2 * 1024 * 1024)
+    {
+      MWARNING("[NINA-STATE-SYNC] State data too large (" << arg.state_data.size() << " bytes), dropping");
+      return 1;
+    }
+
+    // Validate: skip stale state (> 24h old)
+    uint64_t now = static_cast<uint64_t>(std::time(nullptr));
+    if (now > arg.timestamp && (now - arg.timestamp) > 86400)
+    {
+      MDEBUG("[NINA-STATE-SYNC] Stale state (age=" << (now - arg.timestamp) << "s), skipping");
+      return 1;
+    }
+
+    // Skip if TTL expired
+    if (arg.hops == 0)
+      return 1;
+
+    // Dedup by state_hash
+    static std::set<std::string> seen_state_hashes;
+    static const size_t MAX_SEEN = 200;
+
+    if (seen_state_hashes.count(arg.state_hash))
+    {
+      MDEBUG("[NINA-STATE-SYNC] Duplicate state hash, skipping");
+      return 1;
+    }
+    seen_state_hashes.insert(arg.state_hash);
+    if (seen_state_hashes.size() > MAX_SEEN)
+    {
+      auto it = seen_state_hashes.begin();
+      std::advance(it, seen_state_hashes.size() / 2);
+      seen_state_hashes.erase(seen_state_hashes.begin(), it);
+    }
+
+    // Import the state into our NINA LMDB
+    bool imported = daemonize::import_nina_state_from_p2p(arg.state_data, arg.sender_height);
+    if (imported)
+    {
+      MINFO("[NINA-STATE-SYNC] ✓ Successfully imported NINA state from peer"
+            << " (height=" << arg.nina_last_height
+            << ", records=" << arg.nina_block_records << ")");
+    }
+    else
+    {
+      MDEBUG("[NINA-STATE-SYNC] State not imported (we already have equal or better data)");
+    }
+
+    // Relay to other peers with decremented hops
+    if (arg.hops > 1)
+    {
+      NOTIFY_NINA_STATE_SYNC::request relay_arg = arg;
+      relay_arg.hops--;
+      relay_nina_state_sync(relay_arg, context);
+    }
+
+    return 1;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA State Sync relay to all connected peers except source
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  bool t_cryptonote_protocol_handler<t_core>::relay_nina_state_sync(NOTIFY_NINA_STATE_SYNC::request& arg, cryptonote_connection_context& exclude_context)
+  {
+    size_t relayed = 0;
+    m_p2p->for_each_connection([&](cryptonote_connection_context& context, nodetool::peerid_type peer_id, uint32_t support_flags) -> bool
+    {
+      if (context.m_connection_id == exclude_context.m_connection_id)
+        return true;
+      if (context.m_state != cryptonote_connection_context::state_normal)
+        return true;
+
+      post_notify<NOTIFY_NINA_STATE_SYNC>(arg, context);
+      relayed++;
+      return true;
+    });
+
+    MINFO("[NINA-STATE-SYNC] Relayed state to " << relayed << " peers");
     return true;
   }
   //------------------------------------------------------------------------------------------------------------------------
@@ -2738,6 +2843,39 @@ skip:
       cryptonote_connection_context no_exclude{};
       relay_nina_intelligence(hash_msg, no_exclude);
       MINFO("[NINA-P2P] Broadcasted AI code hash to peers: " << std::string(our_ai_hash).substr(0, 16) << "...");
+    }
+
+    // === Broadcast our NINA state (data.mdb) to all peers ===
+    // This shares NINA's learning data so new nodes bootstrap instantly
+    {
+      std::string state_data = daemonize::export_nina_state_for_p2p();
+      if (!state_data.empty())
+      {
+        NOTIFY_NINA_STATE_SYNC::request state_msg;
+        state_msg.sender_height = current_blockchain_height;
+        state_msg.timestamp = static_cast<uint64_t>(std::time(nullptr));
+        state_msg.state_data = state_data;
+        state_msg.hops = 3;  // propagate up to 3 hops
+
+        // Parse our own state for the metadata fields
+        uint64_t nina_height = 0;
+        std::map<uint64_t, daemonize::PersistedBlockRecord> history;
+        daemonize::PersistedStatistics stats{};
+        daemonize::NINAPersistenceManager::instance().load_nina_state(nina_height, history, stats);
+        state_msg.nina_last_height = nina_height;
+        state_msg.nina_block_records = history.size();
+        state_msg.nina_session_count = stats.session_count;
+
+        // Simple hash for dedup (use first 64 chars of state + height)
+        state_msg.state_hash = std::to_string(nina_height) + "_" +
+                               std::to_string(history.size()) + "_" +
+                               std::to_string(state_msg.timestamp);
+
+        cryptonote_connection_context no_exclude{};
+        relay_nina_state_sync(state_msg, no_exclude);
+        MINFO("[NINA-STATE-SYNC] Broadcasted NINA state to peers: "
+              << history.size() << " records at height " << nina_height);
+      }
     }
 
     // ask for txpool complement from any suitable node if we did not yet

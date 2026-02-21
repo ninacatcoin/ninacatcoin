@@ -468,5 +468,40 @@ namespace cryptonote
     };
     typedef epee::misc_utils::struct_init<request_t> request;
   };
+
+  /************************************************************************/
+  /* NINA State Sync — share NINA's data.mdb state between nodes         */
+  /* Works like blockchain sync: nodes exchange their NINA learning       */
+  /* state so new nodes can bootstrap NINA intelligence immediately      */
+  /* instead of learning from scratch over 1000+ blocks.                 */
+  /************************************************************************/
+  struct NOTIFY_NINA_STATE_SYNC
+  {
+    const static int ID = BC_COMMANDS_POOL_BASE + 13;
+
+    struct request_t
+    {
+      uint64_t    sender_height;       // Sender's blockchain height
+      uint64_t    nina_last_height;    // Last height NINA processed
+      uint64_t    nina_block_records;  // Number of block records in NINA DB
+      uint64_t    nina_session_count;  // Number of sessions NINA has run
+      uint64_t    timestamp;           // When this was generated
+      std::string state_data;          // Serialized NINA state (export_nina_state_for_p2p)
+      std::string state_hash;          // SHA-256 of state_data for integrity
+      uint8_t     hops;                // TTL: decremented each relay
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(sender_height)
+        KV_SERIALIZE(nina_last_height)
+        KV_SERIALIZE(nina_block_records)
+        KV_SERIALIZE(nina_session_count)
+        KV_SERIALIZE(timestamp)
+        KV_SERIALIZE(state_data)
+        KV_SERIALIZE(state_hash)
+        KV_SERIALIZE(hops)
+      END_KV_SERIALIZE_MAP()
+    };
+    typedef epee::misc_utils::struct_init<request_t> request;
+  };
     
 }
