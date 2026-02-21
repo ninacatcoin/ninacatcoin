@@ -25,11 +25,11 @@ namespace ninacatcoin_ai {
  *
  * FLOW:
  *   1. P2P consensus detects our hash is in the minority
- *   2. Download source from GitHub (git clone --depth 1)
- *   3. Build in temporary directory (cmake + make)
- *   4. Hash the new AI source files, verify they match consensus
- *   5. Backup current binary
- *   6. Install new binary
+ *   2. Detect source and build directories from the running binary path
+ *   3. Download/update source via git in the ORIGINAL source directory
+ *   4. Rebuild in the ORIGINAL build directory (cmake + make/MSBuild)
+ *   5. Hash the new AI source files, verify they match consensus
+ *   6. Install new binary (mv trick to handle "Text file busy" on Linux)
  *   7. Signal daemon for graceful restart
  */
 class AutoUpdater {
@@ -59,6 +59,17 @@ public:
     /// Get the path to the current daemon binary
     std::string getDaemonPath() const;
 
+    /// Detect the source root directory from the running binary
+    /// e.g. /mnt/i/ninacatcoin/build-linux/bin/ninacatcoind -> /mnt/i/ninacatcoin
+    std::string getSourceDir();
+
+    /// Detect the build directory from the running binary
+    /// e.g. /mnt/i/ninacatcoin/build-linux/bin/ninacatcoind -> /mnt/i/ninacatcoin/build-linux
+    std::string getBuildDir();
+
+    /// Detect the build type name ("build-linux", "build", "build-win", etc.)
+    std::string detectBuildType();
+
     // Configuration
     static constexpr const char* GITHUB_REPO     = "https://github.com/ninacatcoin/ninacatcoin.git";
     static constexpr const char* GITHUB_BRANCH   = "master";
@@ -84,10 +95,10 @@ private:
     /// Step 4: Backup current binary
     bool backupCurrentBinary(const std::string& backup_path);
 
-    /// Step 5: Install new binary
+    /// Step 5: Install new binary (handles "Text file busy" on Linux via mv trick)
     bool installNewBinary(const std::string& new_binary, const std::string& target_path);
 
-    /// Step 6: Signal restart
+    /// Step 6: Signal restart (SIGHUP on Linux, graceful exit on Windows)
     void signalRestart();
 
     /// Run a shell command and return exit code
