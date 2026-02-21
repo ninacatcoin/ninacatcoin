@@ -36,6 +36,13 @@ static std::unique_ptr<NInaAdvancedCoordinator> g_nina_advanced_ai = nullptr;
  */
 static std::unique_ptr<SybilDetectorModule> g_nina_sybil_detector = nullptr;
 
+/**
+ * Callback for persisting NINA learning metrics to LMDB.
+ * Set during daemon initialization to avoid hard symbol dependencies
+ * in non-daemon targets (blockchain utilities, etc.).
+ */
+static void (*g_nina_persist_learning_fn)(uint64_t) = nullptr;
+
 // Forward declarations
 inline void nina_advanced_generate_report(uint64_t block_height);
 inline void nina_sybil_analyze_and_alert();
@@ -145,6 +152,13 @@ inline void initialize_nina_advanced()
                 MINFO("[NINA] ✓ Learning metrics restored from LMDB");
             }
         }
+        
+        // Register the learning persistence callback
+        // This avoids hard symbol dependencies in non-daemon targets
+        g_nina_persist_learning_fn = [](uint64_t height) {
+            auto& learning = ninacatcoin_ai::NINALearningModule::getInstance();
+            learning.persistToLMDB(height);
+        };
         
         // Load shared ML models received from peers
         nina_load_shared_models();
@@ -266,9 +280,10 @@ inline void nina_advanced_observe_block(
             
             nina_save_persistent_state(block_height, anomalies, attacks, accuracy, peer_rep, health);
             
-            // Also persist learning metrics to LMDB
-            auto& learning = ninacatcoin_ai::NINALearningModule::getInstance();
-            learning.persistToLMDB(block_height);
+            // Also persist learning metrics to LMDB (via callback to avoid linker deps)
+            if (g_nina_persist_learning_fn) {
+                g_nina_persist_learning_fn(block_height);
+            }
             
             nina_audit_log(block_height, "STATE_PERSISTED", "NINA memory + learning metrics saved to LMDB");
         }

@@ -4,7 +4,7 @@
 // This hash is compiled into the binary so all nodes running
 // the same version can verify each other's code integrity via P2P.
 //
-// Build timestamp: 2026-02-21 02:49:28 UTC
+// Build timestamp: 2026-02-21 05:56:14 UTC
 // Files hashed: 19
 
 #pragma once
@@ -20,6 +20,6 @@ static constexpr int AI_COMPILED_FILE_COUNT = 19;
 
 // Build timestamp for this hash
 static constexpr const char* AI_HASH_BUILD_TIME =
-    "2026-02-21 02:49:28 UTC";
+    "2026-02-21 05:56:14 UTC";
 
 } // namespace ninacatcoin_ai
