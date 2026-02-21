@@ -355,12 +355,8 @@ public:
                                 "\"footer\":{\"text\":\"NINA IA Auto-Update System\"}"
                                 "}]}";
                             
-                            std::string cmd = "curl -sS -X POST "
-                                "-H \"Content-Type: application/json\" "
-                                "-d '" + json_payload + "' "
-                                "\"https://discord.com/api/webhooks/1474466544653434941/XVrNU12o1Kkf1u__d7wbVFmJCHqT5iuBad13Lgvbq3SBQY4RiEeZTg7owxaPcQ0E7UCy\" "
-                                ">/dev/null 2>&1 &";
-                            std::system(cmd.c_str());
+                            // Discord notification sent via sendAttackAlert below
+                            // No hardcoded webhook URLs — uses DISCORD_WEBHOOK env var
                             
                             // Also send to Discord alert system
                             daemonize::AttackDetail alert;

@@ -9,6 +9,7 @@
 #include <cstdlib>
 #include <chrono>
 #include <thread>
+#include <filesystem>
 
 namespace ninacatcoin_ai {
 
@@ -151,10 +152,18 @@ bool ForcedRemediation::downloadCleanCode() {
     std::cout << "[AI Remediation] Cloning from: " 
               << AISecurityConfig::OFFICIAL_GITHUB_REPO << std::endl;
 
-    // Create command to download and verify, including submodule initialization
+    // Use a unique temporary directory to prevent symlink/race attacks
+    // mkdtemp creates a directory with 0700 permissions (owner-only)
+    char tmpl[] = "/tmp/ninacatcoin_remediation_XXXXXX";
+    char* secure_dir = mkdtemp(tmpl);
+    if (!secure_dir) {
+        std::cerr << "[AI Remediation] Failed to create secure temp directory" << std::endl;
+        return false;
+    }
+    m_secure_tmp_dir = std::string(secure_dir);
+
     std::string cmd = 
-        "cd /tmp && "
-        "rm -rf ninacatcoin_clean && "
+        "cd '" + m_secure_tmp_dir + "' && "
         "git clone --depth 1 --single-branch --branch master "
         + std::string(AISecurityConfig::OFFICIAL_GITHUB_REPO) + " ninacatcoin_clean && "
         "cd ninacatcoin_clean && "
@@ -164,6 +173,9 @@ bool ForcedRemediation::downloadCleanCode() {
     
     if (result != 0) {
         std::cerr << "[AI Remediation] Git clone/submodule initialization failed with code: " << result << std::endl;
+        // Cleanup secure temp dir on failure
+        std::filesystem::remove_all(m_secure_tmp_dir);
+        m_secure_tmp_dir.clear();
         return false;
     }
 
@@ -201,21 +213,27 @@ bool ForcedRemediation::verifyDownloadedCode() {
 bool ForcedRemediation::forceCompilation() {
     std::cout << "[AI Remediation] Starting deterministic build..." << std::endl;
 
+    if (m_secure_tmp_dir.empty()) {
+        std::cerr << "[AI Remediation] No secure temp directory available" << std::endl;
+        return false;
+    }
+
+    std::string build_log = m_secure_tmp_dir + "/build.log";
     // Force reproducible/deterministic build with manual submodules flag as fallback
     std::string cmd =
-        "cd /tmp/ninacatcoin_clean && "
+        "cd '" + m_secure_tmp_dir + "/ninacatcoin_clean' && "
         "REPRODUCIBLE_BUILD=1 "
         "NINACATCOIN_AI_VERIFY=1 "
         "cmake -DCMAKE_BUILD_TYPE=Release "
         "-DMANUAL_SUBMODULES=1 "
         "-DAI_SECURITY_LEVEL=MAXIMUM . && "
-        "make -j$(nproc) 2>&1 > /tmp/ninacatcoin_build.log";
+        "make -j$(nproc) 2>&1 > '" + build_log + "'";
 
     int result = system(cmd.c_str());
     
     if (result != 0) {
         std::cerr << "[AI Remediation] Build failed with code: " << result << std::endl;
-        std::cerr << "[AI Remediation] Check /tmp/ninacatcoin_build.log for details" << std::endl;
+        std::cerr << "[AI Remediation] Check " << build_log << " for details" << std::endl;
         return false;
     }
 
@@ -254,19 +272,29 @@ bool ForcedRemediation::revalidateWithSeeds() {
 }
 
 bool ForcedRemediation::replaceCurrentCodeWithClean() {
+    if (m_secure_tmp_dir.empty()) {
+        std::cerr << "[AI Remediation] No secure temp directory" << std::endl;
+        return false;
+    }
+
     // Backup current code
     std::string backup_cmd =
         "cp -r /ninacatcoin/src/ai /ninacatcoin_backup/ai_backup_$(date +%s)";
     
     system(backup_cmd.c_str());
 
-    // Replace with clean code
+    // Replace with clean code from secure temp dir
+    std::string clean_src = m_secure_tmp_dir + "/ninacatcoin_clean/src/ai";
     std::string replace_cmd =
         "rm -rf /ninacatcoin/src/ai/* && "
-        "cp -r /tmp/ninacatcoin_clean/src/ai/* /ninacatcoin/src/ai/";
+        "cp -r '" + clean_src + "'/* /ninacatcoin/src/ai/";
 
     int result = system(replace_cmd.c_str());
     
+    // Cleanup secure temp directory after use
+    std::filesystem::remove_all(m_secure_tmp_dir);
+    m_secure_tmp_dir.clear();
+
     if (result != 0) {
         std::cerr << "[AI Remediation] Failed to replace code" << std::endl;
         return false;

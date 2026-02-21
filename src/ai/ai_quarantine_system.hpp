@@ -103,13 +103,19 @@ private:
     void implementWindowsFirewallRules();
 
     /**
-     * Implement Linux iptables rules
+     * Implement Linux iptables rules (only ninacatcoin ports)
      */
     void implementLinuxIPTables();
 
     /**
+     * Remove all quarantine firewall rules (cleanup)
+     */
+    void removeFirewallRules();
+
+    /**
      * Write quarantine flag file
      */
+
     void writeQuarantineFlag();
 };
 

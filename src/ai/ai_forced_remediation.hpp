@@ -70,6 +70,7 @@ private:
     RemediationState current_state;
     int remediation_attempts;
     std::string last_error;
+    std::string m_secure_tmp_dir;  // Secure mkdtemp-created temp directory
     bool is_initialized;
 
     // Remediation steps (private implementation)

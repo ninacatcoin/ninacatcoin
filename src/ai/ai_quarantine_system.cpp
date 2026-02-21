@@ -240,12 +240,20 @@ void QuarantineSystem::closeAllSockets() {
 
 void QuarantineSystem::implementWindowsFirewallRules() {
     #ifdef _WIN32
+    // Block only ninacatcoin ports, NOT all traffic (avoids locking out SSH/RDP)
     std::vector<std::string> commands = {
-        "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineOut\" "
-        "dir=out action=block program=\"ninacatcoind.exe\" enable=yes",
-        
-        "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineIn\" "
-        "dir=in action=block program=\"ninacatcoind.exe\" enable=yes"
+        "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineP2P\" "
+        "dir=out action=block protocol=TCP localport=19080 enable=yes",
+        "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineRPC\" "
+        "dir=out action=block protocol=TCP localport=19081 enable=yes",
+        "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineZMQ\" "
+        "dir=out action=block protocol=TCP localport=19082 enable=yes",
+        "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineP2PIn\" "
+        "dir=in action=block protocol=TCP localport=19080 enable=yes",
+        "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineRPCIn\" "
+        "dir=in action=block protocol=TCP localport=19081 enable=yes",
+        "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineZMQIn\" "
+        "dir=in action=block protocol=TCP localport=19082 enable=yes"
     };
 
     for (const auto& cmd : commands) {
@@ -257,11 +265,17 @@ void QuarantineSystem::implementWindowsFirewallRules() {
 
 void QuarantineSystem::implementLinuxIPTables() {
     #ifdef __linux__
+    // Block only ninacatcoin P2P/RPC/ZMQ ports — NEVER block all traffic
+    // This preserves SSH access and other services on the machine
     std::vector<std::string> commands = {
-        "iptables -I OUTPUT 1 -j DROP",
-        "iptables -I INPUT 1 -j DROP",
-        "ip6tables -I OUTPUT 1 -j DROP",
-        "ip6tables -I INPUT 1 -j DROP"
+        "iptables -I INPUT 1 -p tcp --dport 19080 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I INPUT 1 -p tcp --dport 19081 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I INPUT 1 -p tcp --dport 19082 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I OUTPUT 1 -p tcp --dport 19080 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I OUTPUT 1 -p tcp --dport 19081 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I OUTPUT 1 -p tcp --dport 19082 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "ip6tables -I INPUT 1 -p tcp --dport 19080 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "ip6tables -I OUTPUT 1 -p tcp --dport 19080 -j DROP -m comment --comment ninacatcoin_quarantine"
     };
 
     for (const auto& cmd : commands) {
@@ -269,6 +283,26 @@ void QuarantineSystem::implementLinuxIPTables() {
         system(cmd.c_str());
     }
     #endif
+}
+
+void QuarantineSystem::removeFirewallRules() {
+    #ifdef _WIN32
+    std::vector<std::string> commands = {
+        "netsh advfirewall firewall delete rule name=\"NinacatcoinQuarantineP2P\"",
+        "netsh advfirewall firewall delete rule name=\"NinacatcoinQuarantineRPC\"",
+        "netsh advfirewall firewall delete rule name=\"NinacatcoinQuarantineZMQ\"",
+        "netsh advfirewall firewall delete rule name=\"NinacatcoinQuarantineP2PIn\"",
+        "netsh advfirewall firewall delete rule name=\"NinacatcoinQuarantineRPCIn\"",
+        "netsh advfirewall firewall delete rule name=\"NinacatcoinQuarantineZMQIn\""
+    };
+    for (const auto& cmd : commands) { system(cmd.c_str()); }
+    #endif
+    #ifdef __linux__
+    // Remove all rules tagged with ninacatcoin_quarantine comment
+    system("iptables -S | grep ninacatcoin_quarantine | sed 's/-A//' | while read rule; do iptables -D $rule 2>/dev/null; done");
+    system("ip6tables -S | grep ninacatcoin_quarantine | sed 's/-A//' | while read rule; do ip6tables -D $rule 2>/dev/null; done");
+    #endif
+    std::cout << "[AI Quarantine] Firewall rules cleaned up" << std::endl;
 }
 
 // GlobalBlacklist implementation

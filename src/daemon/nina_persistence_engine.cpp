@@ -3,6 +3,7 @@
 #include <fstream>
 #include <sstream>
 #include <algorithm>
+#include <filesystem>
 
 #undef MONERO_DEFAULT_LOG_CATEGORY
 #define MONERO_DEFAULT_LOG_CATEGORY "NINA-PERSISTENCE"
@@ -18,10 +19,10 @@ bool NINaPersistenceEngine::initialize(const std::string& path) {
         db_path = path;
         
         // Create directory if it doesn't exist
-        std::string mkdir_cmd = std::string("mkdir -p ") + path;
-        int ret = system(mkdir_cmd.c_str());
-        if (ret != 0) {
-            MERROR("Failed to create persistence directory: " << path);
+        std::error_code ec;
+        std::filesystem::create_directories(path, ec);
+        if (ec) {
+            MERROR("Failed to create persistence directory: " << path << " - " << ec.message());
             return false;
         }
         

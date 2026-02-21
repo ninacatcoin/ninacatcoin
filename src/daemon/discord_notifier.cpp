@@ -9,6 +9,9 @@
 #include <cstdlib>
 #include <cstdio>
 #include <algorithm>
+#ifndef _WIN32
+#include <unistd.h>
+#endif
 
 namespace daemonize {
 
@@ -269,19 +272,23 @@ bool DiscordNotifier::sendToDiscord(const std::string& json_payload) {
     }
 
     // Use curl to send HTTP POST to Discord webhook
-    // Escape single quotes in payload for shell safety
-    std::string escaped_payload = json_payload;
-    size_t pos = 0;
-    while ((pos = escaped_payload.find('\'', pos)) != std::string::npos) {
-        escaped_payload.replace(pos, 1, "'\\''");
-        pos += 4;
-    }
 
-    // Build curl command: POST JSON to webhook URL, silent, with timeout
+    // Write JSON payload to temp file to avoid shell injection via string concat
+    char tmpfile[] = "/tmp/nina_discord_XXXXXX";
+    int tmpfd = mkstemp(tmpfile);
+    if (tmpfd == -1) {
+        MERROR("[Discord] Failed to create temp file for payload");
+        return false;
+    }
+    // Write and close
+    (void)write(tmpfd, json_payload.c_str(), json_payload.size());
+    close(tmpfd);
+
+    // Build curl command using @file for payload (no shell injection possible)
     std::string cmd = "curl -s -o /dev/null -w '%{http_code}' "
                       "-H 'Content-Type: application/json' "
                       "-X POST "
-                      "-d '" + escaped_payload + "' "
+                      "-d @'" + std::string(tmpfile) + "' "
                       "'" + webhook_url + "' "
                       "--connect-timeout 5 --max-time 10 2>/dev/null";
 
@@ -289,6 +296,7 @@ bool DiscordNotifier::sendToDiscord(const std::string& json_payload) {
     // We use popen to capture the HTTP status code
     FILE* pipe = popen(cmd.c_str(), "r");
     if (!pipe) {
+        unlink(tmpfile);  // Cleanup temp file
         MERROR("[Discord] Failed to execute curl command");
         return false;
     }
@@ -298,6 +306,7 @@ bool DiscordNotifier::sendToDiscord(const std::string& json_payload) {
         // buffer contains the HTTP status code
         int status_code = std::atoi(buffer);
         pclose(pipe);
+        unlink(tmpfile);  // Cleanup temp file
 
         if (status_code >= 200 && status_code < 300) {
             MINFO("[Discord] Alert sent successfully (HTTP " << status_code << ")");
@@ -314,6 +323,7 @@ bool DiscordNotifier::sendToDiscord(const std::string& json_payload) {
     }
 
     pclose(pipe);
+    unlink(tmpfile);  // Cleanup temp file
     MWARNING("[Discord] No response from curl");
     return false;
 }

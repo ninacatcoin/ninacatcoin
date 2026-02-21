@@ -14,6 +14,11 @@
 #include <iostream>
 #include <cstring>
 #include <cstdlib>
+#include <filesystem>
+#ifndef _WIN32
+#include <pwd.h>
+#include <unistd.h>
+#endif
 #include <lmdb.h>
 
 namespace daemonize {
@@ -130,13 +135,22 @@ private:
 
     std::string resolve_db_path() const {
         const char* home = std::getenv("HOME");
-        if (!home) home = "/tmp";
+#ifndef _WIN32
+        if (!home) {
+            struct passwd* pw = getpwuid(getuid());
+            if (pw) home = pw->pw_dir;
+        }
+#else
+        if (!home) home = std::getenv("USERPROFILE");
+#endif
+        if (!home) home = ".";
         return std::string(home) + "/.ninacatcoin/nina_state";
     }
 
     static void ensure_dir(const std::string& path) {
-        std::string cmd = "mkdir -p '" + path + "' 2>/dev/null";
-        (void)system(cmd.c_str());
+        std::error_code ec;
+        std::filesystem::create_directories(path, ec);
+        // ec silently ignored like the original — best-effort
     }
 
     // Convert uint64_t to big-endian 8-byte key for sorted iteration

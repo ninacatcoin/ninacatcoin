@@ -27,6 +27,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <limits.h>
+#include <pwd.h>
 #endif
 
 namespace ninacatcoin_ai {
@@ -85,7 +86,13 @@ std::string AutoUpdater::getUpdateDir() const {
     // Fallback only — prefer getSourceDir()/getBuildDir() for actual builds
     const char* home = std::getenv("HOME");
     if (!home) home = std::getenv("USERPROFILE");
-    if (!home) home = "/tmp";
+#ifndef _WIN32
+    if (!home) {
+        struct passwd* pw = getpwuid(getuid());
+        if (pw) home = pw->pw_dir;
+    }
+#endif
+    if (!home) home = ".";
     return std::string(home) + "/.ninacatcoin/auto_update";
 }
 

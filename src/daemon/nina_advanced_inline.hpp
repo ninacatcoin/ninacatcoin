@@ -16,6 +16,10 @@
 #include <memory>
 #include <filesystem>
 #include <fstream>
+#ifndef _WIN32
+#include <pwd.h>
+#include <unistd.h>
+#endif
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
 #define ninacatcoin_DEFAULT_LOG_CATEGORY "nina_advanced"
@@ -135,7 +139,15 @@ inline void initialize_nina_advanced()
         // Initialize LMDB Persistence Engine
         MINFO("\n[NINA-PERSISTENCE] Initializing persistence layer...");
         const char* home = getenv("HOME");
-        std::string db_path = home ? std::string(home) : "/root";
+#ifndef _WIN32
+        if (!home) {
+            struct passwd* pw = getpwuid(getuid());
+            if (pw) home = pw->pw_dir;
+        }
+#else
+        if (!home) home = getenv("USERPROFILE");
+#endif
+        std::string db_path = home ? std::string(home) : ".";
         db_path += "/.ninacatcoin/ninacatcoin_ai_db";
         if (!ninacatcoin_ai::NINaPersistenceEngine::initialize(db_path)) {
             MERROR("Failed to initialize NINA Persistence Engine!");
