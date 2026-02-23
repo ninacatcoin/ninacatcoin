@@ -6,6 +6,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include "nina_constitution.hpp"
 #include "nina_explanation_engine.hpp"
 #include "nina_governance_engine.hpp"

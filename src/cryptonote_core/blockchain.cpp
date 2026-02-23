@@ -65,6 +65,7 @@
 #include "cryptonote_basic/cryptonote_format_utils.h"
 #include "daemon/nina_advanced_inline.hpp"
 #include "daemon/nina_ml_client.hpp"
+#include "daemon/nina_learning_module.hpp"
 #include "daemon/nina_block_data_logger.hpp"
 
 static void print_testnet_burn_address()
@@ -4362,21 +4363,30 @@ leave:
     goto leave;
   }
 
-  // ========== NINA PHASE 1: ML BLOCK VALIDATION (REAL FEATURES) ==========
-  // Calculates REAL features from the blockchain state, not hardcoded values.
-  // ML model detects anomalies based on actual chain data.
+  // ========== NINA PHASE 1: IN-PROCESS ML BLOCK VALIDATION ==========
+  // Uses NINALearningModule (Welford's online algorithm) — no external service.
+  // Calculates REAL features from blockchain state and feeds them into the
+  // in-process learning module for anomaly detection via statistical analysis.
+  // Advisory only: NEVER affects block acceptance (no consensus impact).
   try
   {
-    MINFO("[NINA-ML] PHASE 1: Validating block " << blockchain_height << " with ML model");
-    
+    auto& nina_ml = ninacatcoin_ai::NINALearningModule::getInstance();
+
+    // --- Adaptive lookback: shorter during sync for speed ---
+    const uint64_t chain_tip = m_db->height();
+    const bool is_syncing = (chain_tip > blockchain_height + 5);
+    const uint64_t health_lookback  = is_syncing ? std::min(blockchain_height, (uint64_t)10)
+                                                 : std::min(blockchain_height, (uint64_t)60);
+    const uint64_t rep_lookback     = is_syncing ? std::min(blockchain_height, (uint64_t)15)
+                                                 : std::min(blockchain_height, (uint64_t)100);
+
     // === REAL FEATURE: network_health ===
     // Measures what % of recent blocks had solve times within 2x target (stable network)
     double network_health = 1.0;
     {
       const uint64_t target_time = get_difficulty_target();
-      const uint64_t lookback = std::min(blockchain_height, (uint64_t)60);
       uint64_t healthy_blocks = 0;
-      for (uint64_t i = 1; i <= lookback && blockchain_height > i; ++i)
+      for (uint64_t i = 1; i <= health_lookback && blockchain_height > i; ++i)
       {
         uint64_t ts_curr = m_db->get_block_timestamp(blockchain_height - i);
         uint64_t ts_prev = m_db->get_block_timestamp(blockchain_height - i - 1);
@@ -4384,18 +4394,13 @@ leave:
         if (solve <= target_time * 2 && solve >= target_time / 4)
           healthy_blocks++;
       }
-      network_health = (lookback > 0) ? static_cast<double>(healthy_blocks) / lookback : 1.0;
+      network_health = (health_lookback > 0) ? static_cast<double>(healthy_blocks) / health_lookback : 1.0;
     }
-    
+
     // === REAL FEATURE: miner_reputation ===
-    // Checks how many of the last 100 blocks were mined by the same coinbase key
-    // Diverse mining = healthy. Single miner dominance = risky.
-    double miner_reputation = 0.8; // default for unknown
+    // Difficulty CV as proxy for mining diversity (privacy coin — no addresses visible)
+    double miner_reputation = 0.8;
     {
-      const uint64_t rep_lookback = std::min(blockchain_height, (uint64_t)100);
-      // We measure diversity: if the same miner has <50% of blocks, reputation is high
-      // For privacy coins we can't directly see miner address, so we use difficulty
-      // consistency as a proxy: highly variable difficulty = multiple miners coming/going
       if (rep_lookback >= 10)
       {
         double diff_sum = 0.0, diff_sq_sum = 0.0;
@@ -4410,13 +4415,12 @@ leave:
         double mean = diff_sum / rep_lookback;
         double variance = (diff_sq_sum / rep_lookback) - (mean * mean);
         double cv = (mean > 0) ? std::sqrt(std::max(0.0, variance)) / mean : 0.0;
-        // High CV = diverse mining = good. Low CV = single miner = concerning
         miner_reputation = std::min(1.0, 0.3 + cv * 2.0);
       }
     }
-    
+
     // === REAL FEATURE: hash_entropy ===
-    // Counts the actual bit transitions in the block hash (proxy for valid PoW)
+    // Bit transitions in block hash (proxy for valid PoW)
     uint32_t hash_entropy = 0;
     {
       const uint8_t* hash_bytes = reinterpret_cast<const uint8_t*>(&id);
@@ -4435,68 +4439,43 @@ leave:
         }
       }
     }
-    
+
     size_t txs_count = bl.tx_hashes.size();
-    uint64_t block_timestamp = bl.timestamp;
-    std::string block_hash_hex = epee::string_tools::pod_to_hex(id);
-    
-    MINFO("[NINA-ML] Real features: health=" << std::fixed << std::setprecision(3) << network_health
-          << " reputation=" << miner_reputation << " entropy=" << hash_entropy 
-          << " txs=" << txs_count);
-    
-    // Call PHASE 1 ML validation with REAL features
-    NINA_ML::MLResponse ml_result = NINA_ML::validateBlock(
-        block_hash_hex,
-        block_timestamp,
-        static_cast<double>(current_diffic),
-        "unknown",
-        static_cast<int>(txs_count),
-        network_health,
-        hash_entropy,
-        miner_reputation
-    );
-    
-    // Interpret ML response (ML is advisory, never breaks consensus)
-    if (ml_result.confidence > 0.0)
+
+    // Feed features into in-process learning module (Welford's online statistics)
+    nina_ml.recordMetric("network_health", network_health);
+    nina_ml.recordMetric("miner_reputation", miner_reputation);
+    nina_ml.recordMetric("hash_entropy", static_cast<double>(hash_entropy));
+    nina_ml.recordMetric("txs_count", static_cast<double>(txs_count));
+    nina_ml.recordMetric("difficulty", static_cast<double>(current_diffic));
+
+    // In-process anomaly detection (2-sigma Welford)
+    bool health_anomaly = nina_ml.isAnomaly("network_health", network_health);
+    bool rep_anomaly    = nina_ml.isAnomaly("miner_reputation", miner_reputation);
+    bool entropy_anomaly = nina_ml.isAnomaly("hash_entropy", static_cast<double>(hash_entropy));
+    int anomaly_count = (health_anomaly ? 1 : 0) + (rep_anomaly ? 1 : 0) + (entropy_anomaly ? 1 : 0);
+
+    double confidence = nina_ml.getNetworkHealthConfidence();
+
+    // Log only every 50 blocks during sync, every block at tip
+    bool should_log = !is_syncing || (blockchain_height % 50 == 0);
+    if (should_log)
     {
-      double confidence = ml_result.confidence;
-      double risk_score = ml_result.risk_score;
-      
-      if (confidence > 0.65)
+      if (anomaly_count == 0)
       {
-        MINFO("[NINA-ML] ✓ Block " << blockchain_height << " passed PHASE 1 (confidence: " 
-              << std::fixed << std::setprecision(2) << confidence << ")");
-      }
-      else if (risk_score > 0.8)
-      {
-        MWARNING("[NINA-ML] ⚠ Block " << blockchain_height << " ANOMALY (risk=" 
-              << std::fixed << std::setprecision(2) << risk_score << ") - advisory only");
+        MINFO("[NINA-ML] ✓ Block " << blockchain_height << " OK (confidence: "
+              << std::fixed << std::setprecision(3) << confidence
+              << ", health=" << network_health << ", rep=" << miner_reputation
+              << ", entropy=" << hash_entropy << ", txs=" << txs_count << ")");
       }
       else
       {
-        MINFO("[NINA-ML] Block " << blockchain_height << " moderate risk: " 
-              << std::fixed << std::setprecision(2) << risk_score);
+        MWARNING("[NINA-ML] ⚠ Block " << blockchain_height << " anomalies=" << anomaly_count
+              << " [" << (health_anomaly ? "health " : "")
+              << (rep_anomaly ? "reputation " : "")
+              << (entropy_anomaly ? "entropy" : "") << "] (advisory only)"
+              << " confidence=" << std::fixed << std::setprecision(3) << confidence);
       }
-      
-      // Log features+outcome for future training (feedback loop)
-      try {
-        std::map<std::string, double> training_features;
-        training_features["network_health"] = network_health;
-        training_features["miner_reputation"] = miner_reputation;
-        training_features["hash_entropy"] = static_cast<double>(hash_entropy);
-        training_features["txs_count"] = static_cast<double>(txs_count);
-        training_features["difficulty"] = static_cast<double>(current_diffic);
-        training_features["block_height"] = static_cast<double>(blockchain_height);
-        training_features["ml_confidence"] = confidence;
-        training_features["ml_risk_score"] = risk_score;
-        NINA_ML::NINAMLClient::get_instance().logTrainingEvent(
-            "PHASE_1", "BLOCK_ACCEPTED", training_features);
-      } catch (...) { /* training log is best-effort */ }
-    }
-    else
-    {
-      MDEBUG("[NINA-ML] ML service unavailable for block " << blockchain_height 
-            << " - continuing with legacy validation");
     }
   }
   catch (const std::exception &e)

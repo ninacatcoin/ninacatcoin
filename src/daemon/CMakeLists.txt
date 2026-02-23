@@ -36,7 +36,6 @@ set(daemon_sources
   discord_notifier.cpp
   discord_ia_integration.cpp
   nina_memory_system.cpp
-  nina_learning_module.cpp
   nina_suggestion_engine.cpp
   nina_constitution.cpp
   nina_network_health_monitor.cpp

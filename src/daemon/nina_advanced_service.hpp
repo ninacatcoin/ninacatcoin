@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include "ai/ai_advanced_modules.hpp"
 #include "cryptonote_core/blockchain.h"
 #include <iostream>

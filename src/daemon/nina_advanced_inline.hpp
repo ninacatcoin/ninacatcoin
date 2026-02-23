@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include "ai/ai_advanced_modules.hpp"
 #include "nina_persistent_memory.hpp"
 #include "nina_learning_module.hpp"
@@ -46,6 +47,12 @@ static std::unique_ptr<SybilDetectorModule> g_nina_sybil_detector = nullptr;
  * in non-daemon targets (blockchain utilities, etc.).
  */
 static void (*g_nina_persist_learning_fn)(uint64_t) = nullptr;
+
+/**
+ * In-memory buffer for block records awaiting LMDB persistence.
+ * Accumulated on every observed block, flushed every 15 blocks.
+ */
+static std::map<uint64_t, PersistedBlockRecord> g_nina_pending_block_records;
 
 // Forward declarations
 inline void nina_advanced_generate_report(uint64_t block_height);
@@ -276,21 +283,37 @@ inline void nina_advanced_observe_block(
             block_solve_time
         );
         
+        // *** Buffer this block record for LMDB persistence ***
+        {
+            PersistedBlockRecord record;
+            record.height = block_height;
+            record.timestamp = static_cast<uint64_t>(std::time(nullptr));
+            record.solve_time = static_cast<uint64_t>(block_solve_time);
+            record.difficulty = static_cast<uint64_t>(block_difficulty);
+            record.previous_difficulty = static_cast<uint64_t>(previous_difficulty);
+            record.lwma_prediction_error = (previous_difficulty > 0)
+                ? ((block_difficulty - previous_difficulty) / previous_difficulty) * 100.0
+                : 0.0;
+            record.anomaly_flags = 0;
+            g_nina_pending_block_records[block_height] = record;
+        }
+        
         // Generate report every 100 blocks
         if (block_height > 0 && block_height % 100 == 0) {
             nina_advanced_generate_report(block_height);
         }
         
-        // Persist NINA memory to LMDB every 30 blocks (~1 hour)
+        // Persist NINA memory to LMDB every 15 blocks (~30 min)
         // This ensures NINA doesn't lose memory if daemon crashes
-        if (block_height > 0 && block_height % 30 == 0) {
+        if (block_height > 0 && block_height % 15 == 0) {
             uint64_t anomalies = g_nina_advanced_ai->get_anomalous_tx().get_suspicious_transactions(6.0).size();
             uint64_t attacks = 0;  // Would count detected attacks
             double accuracy = 0.94;  // Would calculate from actual predictions
             double peer_rep = 0.85;  // Would get from reputation module
             double health = g_nina_advanced_ai->get_network_health().calculate_health().overall_score;
             
-            nina_save_persistent_state(block_height, anomalies, attacks, accuracy, peer_rep, health);
+            nina_save_persistent_state(block_height, anomalies, attacks, accuracy, peer_rep, health, g_nina_pending_block_records);
+            g_nina_pending_block_records.clear();
             
             // Also persist learning metrics to LMDB (via callback to avoid linker deps)
             if (g_nina_persist_learning_fn) {

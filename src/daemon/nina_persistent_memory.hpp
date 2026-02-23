@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <vector>
 #include <map>
@@ -623,15 +624,16 @@ inline void nina_save_persistent_state(
     uint64_t attacks = 0,
     double accuracy = 0.0,
     double peer_rep = 0.0,
-    double health = 0.0
+    double health = 0.0,
+    const std::map<uint64_t, PersistedBlockRecord>& new_block_records = {}
 ) {
     auto& mgr = NINAPersistenceManager::instance();
     
-    // Load existing stats to increment session count
+    // Load existing stats to update counters (blocks are separate — only new records are written)
     uint64_t last_height = 0;
-    std::map<uint64_t, PersistedBlockRecord> history;
+    std::map<uint64_t, PersistedBlockRecord> existing_history;
     PersistedStatistics existing_stats{};
-    mgr.load_nina_state(last_height, history, existing_stats);
+    mgr.load_nina_state(last_height, existing_history, existing_stats);
     
     PersistedStatistics stats{
         current_height,
@@ -644,7 +646,14 @@ inline void nina_save_persistent_state(
         static_cast<uint64_t>(std::time(nullptr))
     };
     
-    mgr.persist_nina_state(current_height, history, stats);
+    // *** FIX: Persist the new block records (LMDB put = upsert, old records stay intact) ***
+    mgr.persist_nina_state(current_height, new_block_records, stats);
+    
+    if (!new_block_records.empty()) {
+        std::cout << "[NINA-LMDB] Persisted " << new_block_records.size()
+                  << " new block records (total in DB: ~" 
+                  << (existing_history.size() + new_block_records.size()) << ")" << std::endl;
+    }
 }
 
 inline void nina_audit_log(

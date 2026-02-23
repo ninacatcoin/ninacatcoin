@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include "misc_log_ex.h"
 #include <map>
 #include <vector>
