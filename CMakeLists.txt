@@ -357,7 +357,7 @@ endif()
 if(WIN32 OR ARM OR PPC64LE OR PPC64 OR PPC)
   set(OPT_FLAGS_RELEASE "-O2")
 else()
-  set(OPT_FLAGS_RELEASE "-Ofast")
+  set(OPT_FLAGS_RELEASE "-Ofast -fno-finite-math-only")
 endif()
 
 # BUILD_TAG is used to select the build type to check for a new version
@@ -576,7 +576,12 @@ if (WIN32)
   list(APPEND OPENSSL_LIBRARIES ws2_32 crypt32)
 endif()
 
-find_package(CURL REQUIRED)
+if(STATIC AND MINGW AND NOT DEPENDS)
+  # Force MODULE mode to avoid CURLConfig.cmake which always links shared libcurl
+  find_package(CURL MODULE REQUIRED)
+else()
+  find_package(CURL REQUIRED)
+endif()
 message(STATUS "Using CURL include dir at ${CURL_INCLUDE_DIRS}")
 include_directories(${CURL_INCLUDE_DIRS})
 
@@ -1041,10 +1046,7 @@ if(NOT Boost_FOUND)
 elseif(Boost_FOUND)
   message(STATUS "Found Boost Version: ${Boost_VERSION_STRING}")
 
-  set(BOOST_COMPONENTS filesystem thread date_time chrono serialization program_options)
-  if (WIN32)
-    list(APPEND BOOST_COMPONENTS locale)
-  endif()
+  set(BOOST_COMPONENTS filesystem thread date_time chrono serialization program_options locale)
 
   # Boost System is header-only since 1.69
   if (Boost_VERSION_STRING VERSION_LESS 1.69.0)
@@ -1072,16 +1074,19 @@ if(MINGW)
   set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -Wa,-mbig-obj")
   set(EXTRA_LIBRARIES mswsock;ws2_32;iphlpapi;crypt32;bcrypt)
   if(NOT DEPENDS)
-    # This is an extremely ugly hack to get around Boost not being built with static ICU.
-    # We reported the issue, we are waiting for upstream to fix this issue: https://github.com/boostorg/boost/issues/1079#issue-3384962885
-    # This hack links shared ICU libs to avoid linker errors we get in MSYS2 compilation (undefined symbols to ICU).
     set(OLD_LIB_SUFFIXES ${CMAKE_FIND_LIBRARY_SUFFIXES})
+    # MSYS2's boost_locale is compiled against ICU shared libs (__imp_ symbols).
+    # We must use .dll.a import libraries for ICU even in static builds.
     set(CMAKE_FIND_LIBRARY_SUFFIXES ".dll.a")
     find_library(ICUIO_LIBRARIES NAMES icuio REQUIRED)
     find_library(ICUIN_LIBRARIES NAMES icuin REQUIRED)
     find_library(ICUUC_LIBRARIES NAMES icuuc REQUIRED)
     find_library(ICUDT_LIBRARIES NAMES icudt REQUIRED)
     find_library(ICUTU_LIBRARIES NAMES icutu REQUIRED)
+    # iconv can be statically linked (no __imp_ references from boost_locale)
+    if(STATIC)
+      set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+    endif()
     find_library(ICONV_LIBRARIES NAMES iconv REQUIRED)
     set(ICU_LIBRARIES ${ICUIO_LIBRARIES} ${ICUIN_LIBRARIES} ${ICUUC_LIBRARIES} ${ICUDT_LIBRARIES} ${ICUTU_LIBRARIES} ${ICONV_LIBRARIES})
     set(CMAKE_FIND_LIBRARY_SUFFIXES ${OLD_LIB_SUFFIXES})
@@ -1151,6 +1156,32 @@ find_package(Sodium REQUIRED)
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(libzmq REQUIRED IMPORTED_TARGET libzmq)
+
+# When doing a fully-static MSYS2 build, libcurl.a and libprotobuf.a have
+# transitive dependencies that must be on the link line.  Pull them in via
+# pkg-config so the list stays in sync with the installed packages.
+if(STATIC AND MINGW AND NOT DEPENDS)
+  pkg_check_modules(CURL_PKG QUIET libcurl)
+  if(CURL_PKG_FOUND)
+    foreach(_lib ${CURL_PKG_STATIC_LIBRARIES})
+      if(NOT _lib STREQUAL "curl" AND NOT _lib IN_LIST EXTRA_LIBRARIES)
+        list(APPEND EXTRA_LIBRARIES ${_lib})
+      endif()
+    endforeach()
+  endif()
+
+  pkg_check_modules(PROTOBUF_PKG QUIET protobuf)
+  if(PROTOBUF_PKG_FOUND)
+    foreach(_lib ${PROTOBUF_PKG_STATIC_LIBRARIES})
+      if(NOT _lib STREQUAL "protobuf" AND NOT _lib IN_LIST EXTRA_LIBRARIES)
+        list(APPEND EXTRA_LIBRARIES ${_lib})
+      endif()
+    endforeach()
+  endif()
+
+  # ICU static libraries may need libstdc++ explicitly
+  list(APPEND EXTRA_LIBRARIES stdc++)
+endif()
 
 include(external/supercop/functions.cmake) # place after setting flags and before src directory inclusion
 add_subdirectory(contrib)

@@ -58,7 +58,7 @@ using epee::string_tools::pod_to_hex;
 using namespace crypto;
 
 // Increase when the DB structure changes
-#define VERSION 5
+#define VERSION 6
 
 namespace
 {
@@ -241,6 +241,13 @@ const char* const LMDB_HF_STARTING_HEIGHTS = "hf_starting_heights";
 const char* const LMDB_HF_VERSIONS = "hf_versions";
 
 const char* const LMDB_PROPERTIES = "properties";
+
+// NINA on-chain tables (v18 hard fork — DB version 6)
+const char* const LMDB_NINA_STATE = "nina_state";
+const char* const LMDB_NINA_BLOCKS = "nina_blocks";
+const char* const LMDB_NINA_CHECKPOINTS = "nina_checkpoints";
+const char* const LMDB_NINA_DECISIONS = "nina_decisions";
+const char* const LMDB_NINA_AUDIT = "nina_audit";
 
 const char zerokey[8] = {0};
 const MDB_val zerokval = { sizeof(zerokey), (void *)zerokey };
@@ -1512,6 +1519,13 @@ void BlockchainLMDB::open(const std::string& filename, const int db_flags)
   lmdb_db_open(txn, LMDB_HF_VERSIONS, MDB_INTEGERKEY | MDB_CREATE, m_hf_versions, "Failed to open db handle for m_hf_versions");
 
   lmdb_db_open(txn, LMDB_PROPERTIES, MDB_CREATE, m_properties, "Failed to open db handle for m_properties");
+
+  // NINA on-chain tables (created for all new DBs; existing DBs get them via migrate_5_6)
+  lmdb_db_open(txn, LMDB_NINA_STATE, MDB_CREATE, m_nina_state, "Failed to open db handle for m_nina_state");
+  lmdb_db_open(txn, LMDB_NINA_BLOCKS, MDB_INTEGERKEY | MDB_CREATE, m_nina_blocks, "Failed to open db handle for m_nina_blocks");
+  lmdb_db_open(txn, LMDB_NINA_CHECKPOINTS, MDB_INTEGERKEY | MDB_CREATE, m_nina_checkpoints, "Failed to open db handle for m_nina_checkpoints");
+  lmdb_db_open(txn, LMDB_NINA_DECISIONS, MDB_CREATE, m_nina_decisions, "Failed to open db handle for m_nina_decisions");
+  lmdb_db_open(txn, LMDB_NINA_AUDIT, MDB_INTEGERKEY | MDB_CREATE, m_nina_audit, "Failed to open db handle for m_nina_audit");
 
   mdb_set_dupsort(txn, m_spent_keys, compare_hash32);
   mdb_set_dupsort(txn, m_block_heights, compare_hash32);
@@ -4611,6 +4625,219 @@ void BlockchainLMDB::fixup()
   BlockchainDB::fixup();
 }
 
+// ═══════════════════════════════════════════════════════════════════════════════
+// NINA On-Chain Persistence — LMDB Implementation
+//
+// These methods write NINA's learning state directly into the blockchain's
+// data.mdb, sharing the same LMDB environment, transactions, and crash safety
+// as blocks and transactions.
+//
+// Activated at hard fork v18 (height 20000). Before v18, NINA uses a separate
+// LMDB at ~/.ninacatcoin/nina_state/data.mdb — the NINAPersistenceManager
+// routes calls to the correct backend based on current height.
+// ═══════════════════════════════════════════════════════════════════════════════
+
+void BlockchainLMDB::nina_state_put(const std::string& key, const std::string& value)
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  check_open();
+
+  mdb_txn_safe txn;
+  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
+    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_state_put: ", mdb_res).c_str()));
+
+  MDB_val k, v;
+  k.mv_data = const_cast<char*>(key.data());
+  k.mv_size = key.size();
+  v.mv_data = const_cast<char*>(value.data());
+  v.mv_size = value.size();
+
+  if (auto result = mdb_put(txn, m_nina_state, &k, &v, 0))
+    throw0(DB_ERROR(lmdb_error("Failed to put nina_state: ", result).c_str()));
+
+  txn.commit();
+}
+
+bool BlockchainLMDB::nina_state_get(const std::string& key, std::string& value) const
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  check_open();
+
+  TXN_PREFIX_RDONLY();
+
+  MDB_val k, v;
+  k.mv_data = const_cast<char*>(key.data());
+  k.mv_size = key.size();
+
+  auto result = mdb_get(m_txn, m_nina_state, &k, &v);
+  if (result == MDB_NOTFOUND)
+  {
+    TXN_POSTFIX_RDONLY();
+    return false;
+  }
+  if (result)
+    throw0(DB_ERROR(lmdb_error("Failed to get nina_state: ", result).c_str()));
+
+  value.assign(static_cast<const char*>(v.mv_data), v.mv_size);
+  TXN_POSTFIX_RDONLY();
+  return true;
+}
+
+void BlockchainLMDB::nina_block_put(uint64_t height, const std::string& data)
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  check_open();
+
+  mdb_txn_safe txn;
+  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
+    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_block_put: ", mdb_res).c_str()));
+
+  MDB_val k, v;
+  k.mv_data = &height;
+  k.mv_size = sizeof(height);
+  v.mv_data = const_cast<char*>(data.data());
+  v.mv_size = data.size();
+
+  if (auto result = mdb_put(txn, m_nina_blocks, &k, &v, 0))
+    throw0(DB_ERROR(lmdb_error("Failed to put nina_block: ", result).c_str()));
+
+  txn.commit();
+}
+
+bool BlockchainLMDB::nina_block_get(uint64_t height, std::string& data) const
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  check_open();
+
+  TXN_PREFIX_RDONLY();
+
+  MDB_val k, v;
+  k.mv_data = &height;
+  k.mv_size = sizeof(height);
+
+  auto result = mdb_get(m_txn, m_nina_blocks, &k, &v);
+  if (result == MDB_NOTFOUND)
+  {
+    TXN_POSTFIX_RDONLY();
+    return false;
+  }
+  if (result)
+    throw0(DB_ERROR(lmdb_error("Failed to get nina_block: ", result).c_str()));
+
+  data.assign(static_cast<const char*>(v.mv_data), v.mv_size);
+  TXN_POSTFIX_RDONLY();
+  return true;
+}
+
+bool BlockchainLMDB::nina_block_for_all(std::function<bool(uint64_t height, const std::string& data)> f) const
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  check_open();
+
+  TXN_PREFIX_RDONLY();
+
+  MDB_cursor *cursor;
+  if (auto result = mdb_cursor_open(m_txn, m_nina_blocks, &cursor))
+    throw0(DB_ERROR(lmdb_error("Failed to open cursor for nina_blocks: ", result).c_str()));
+
+  MDB_val k, v;
+  int rc = mdb_cursor_get(cursor, &k, &v, MDB_FIRST);
+  while (rc == 0)
+  {
+    uint64_t h = *(const uint64_t*)k.mv_data;
+    std::string data(static_cast<const char*>(v.mv_data), v.mv_size);
+    if (!f(h, data))
+    {
+      mdb_cursor_close(cursor);
+      TXN_POSTFIX_RDONLY();
+      return false;
+    }
+    rc = mdb_cursor_get(cursor, &k, &v, MDB_NEXT);
+  }
+
+  mdb_cursor_close(cursor);
+  TXN_POSTFIX_RDONLY();
+  return true;
+}
+
+void BlockchainLMDB::nina_checkpoint_put(uint64_t height, const std::string& data)
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  check_open();
+
+  mdb_txn_safe txn;
+  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
+    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_checkpoint_put: ", mdb_res).c_str()));
+
+  MDB_val k, v;
+  k.mv_data = &height;
+  k.mv_size = sizeof(height);
+  v.mv_data = const_cast<char*>(data.data());
+  v.mv_size = data.size();
+
+  if (auto result = mdb_put(txn, m_nina_checkpoints, &k, &v, 0))
+    throw0(DB_ERROR(lmdb_error("Failed to put nina_checkpoint: ", result).c_str()));
+
+  txn.commit();
+}
+
+void BlockchainLMDB::nina_decision_put(const std::string& decision_id, const std::string& data)
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  check_open();
+
+  mdb_txn_safe txn;
+  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
+    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_decision_put: ", mdb_res).c_str()));
+
+  MDB_val k, v;
+  k.mv_data = const_cast<char*>(decision_id.data());
+  k.mv_size = decision_id.size();
+  v.mv_data = const_cast<char*>(data.data());
+  v.mv_size = data.size();
+
+  if (auto result = mdb_put(txn, m_nina_decisions, &k, &v, 0))
+    throw0(DB_ERROR(lmdb_error("Failed to put nina_decision: ", result).c_str()));
+
+  txn.commit();
+}
+
+void BlockchainLMDB::nina_audit_put(uint64_t timestamp_key, const std::string& data)
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  check_open();
+
+  mdb_txn_safe txn;
+  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
+    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_audit_put: ", mdb_res).c_str()));
+
+  MDB_val k, v;
+  k.mv_data = &timestamp_key;
+  k.mv_size = sizeof(timestamp_key);
+  v.mv_data = const_cast<char*>(data.data());
+  v.mv_size = data.size();
+
+  if (auto result = mdb_put(txn, m_nina_audit, &k, &v, 0))
+    throw0(DB_ERROR(lmdb_error("Failed to put nina_audit: ", result).c_str()));
+
+  txn.commit();
+}
+
+uint64_t BlockchainLMDB::nina_block_count() const
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  check_open();
+
+  TXN_PREFIX_RDONLY();
+
+  MDB_stat stats;
+  if (auto result = mdb_stat(m_txn, m_nina_blocks, &stats))
+    throw0(DB_ERROR(lmdb_error("Failed to stat nina_blocks: ", result).c_str()));
+
+  TXN_POSTFIX_RDONLY();
+  return stats.ms_entries;
+}
+
 #define RENAME_DB(name) do { \
     char n2[] = name; \
     MDB_dbi tdbi; \
@@ -5750,6 +5977,65 @@ void BlockchainLMDB::migrate(const uint32_t oldversion)
     migrate_3_4();
   if (oldversion < 5)
     migrate_4_5();
+  if (oldversion < 6)
+    migrate_5_6();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// migrate_5_6: Create NINA on-chain tables (v18 hard fork)
+//
+// Before v18: NINA uses a SEPARATE LMDB at ~/.ninacatcoin/nina_state/data.mdb
+// After  v18: NINA writes into the BLOCKCHAIN'S data.mdb (this file)
+//
+// Tables created:
+//   nina_state       — key=string → serialized statistics & metadata
+//   nina_blocks      — key=height(8B) → serialized PersistedBlockRecord
+//   nina_checkpoints — key=height(8B) → checkpoint hash + metadata
+//   nina_decisions   — key=string → serialized DecisionRecord
+//   nina_audit       — key=timestamp(8B) → "height|event|details"
+//
+// This migration is safe: it only creates new named databases.
+// No existing data is modified. The separate nina_state/data.mdb continues
+// to work for nodes below height 20000.
+// ═══════════════════════════════════════════════════════════════════════════════
+void BlockchainLMDB::migrate_5_6()
+{
+  LOG_PRINT_L3("BlockchainLMDB::" << __func__);
+  MGINFO_YELLOW("Migrating blockchain from DB version 5 to 6 — adding NINA on-chain tables");
+
+  int result;
+  mdb_txn_safe txn(false);
+
+  do {
+    result = mdb_txn_begin(m_env, NULL, 0, txn);
+    if (result)
+      throw0(DB_ERROR(lmdb_error("Failed to create a transaction for the db: ", result).c_str()));
+
+    // Create the 5 NINA tables
+    lmdb_db_open(txn, LMDB_NINA_STATE, MDB_CREATE, m_nina_state,
+      "Failed to open db handle for nina_state");
+    lmdb_db_open(txn, LMDB_NINA_BLOCKS, MDB_INTEGERKEY | MDB_CREATE, m_nina_blocks,
+      "Failed to open db handle for nina_blocks");
+    lmdb_db_open(txn, LMDB_NINA_CHECKPOINTS, MDB_INTEGERKEY | MDB_CREATE, m_nina_checkpoints,
+      "Failed to open db handle for nina_checkpoints");
+    lmdb_db_open(txn, LMDB_NINA_DECISIONS, MDB_CREATE, m_nina_decisions,
+      "Failed to open db handle for nina_decisions");
+    lmdb_db_open(txn, LMDB_NINA_AUDIT, MDB_INTEGERKEY | MDB_CREATE, m_nina_audit,
+      "Failed to open db handle for nina_audit");
+
+    // Update version to 6
+    MDB_val_str(k, "version");
+    MDB_val_copy<uint32_t> v(6);
+    result = mdb_put(txn, m_properties, &k, &v, 0);
+    if (result)
+      throw0(DB_ERROR(lmdb_error("Failed to update version: ", result).c_str()));
+
+    txn.commit();
+  } while(0);
+
+  MGINFO_GREEN("✓ NINA on-chain tables created in data.mdb (5 tables)");
+  MGINFO_GREEN("  nina_state, nina_blocks, nina_checkpoints, nina_decisions, nina_audit");
+  MGINFO_GREEN("  These will be activated at hard fork v18 (height 20000)");
 }
 
 }  // namespace cryptonote

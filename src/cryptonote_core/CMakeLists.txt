@@ -33,9 +33,11 @@ set(cryptonote_core_sources
   tx_sanity_check.cpp
   cryptonote_tx_utils.cpp
   tx_verification_utils.cpp
-  ../daemon/nina_ml_client.cpp
+  # nina_ml_client.cpp removed — replaced by embedded model (ai/ai_embedded_model_weights.hpp)
   ../daemon/nina_learning_module.cpp
   ../daemon/nina_block_data_logger.cpp
+  ../daemon/nina_memory_system.cpp
+  nina_llm_engine_stub.cpp
 )
 
 set(cryptonote_core_headers)

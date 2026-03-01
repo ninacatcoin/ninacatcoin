@@ -9,10 +9,14 @@
 #include "ai/ai_advanced_modules.hpp"
 #include "nina_persistent_memory.hpp"
 #include "nina_learning_module.hpp"
+#include "nina_memory_system.hpp"
+#include "nina_ring_controller.hpp"
+#include "nina_ring_enhancer.hpp"
 #include "nina_sybil_detector.hpp"
 #include "nina_constitution.hpp"
 #include "nina_complete_evolution.hpp"
 #include "nina_persistence_engine.hpp"
+#include "ai/nina_model_downloader.hpp"
 #include "misc_log_ex.h"
 #include <memory>
 #include <filesystem>
@@ -140,6 +144,27 @@ inline void initialize_nina_advanced()
     }
     
     try {
+        // ── Step 0: Ensure NINA model is present (auto-download on first run) ──
+        {
+            const char* home_env = getenv("HOME");
+#ifndef _WIN32
+            if (!home_env) {
+                struct passwd* pw = getpwuid(getuid());
+                if (pw) home_env = pw->pw_dir;
+            }
+#else
+            if (!home_env) home_env = getenv("USERPROFILE");
+#endif
+            std::string data_dir = home_env ? std::string(home_env) : ".";
+            data_dir += "/.ninacatcoin";
+            
+            if (ninacatcoin_ai::ensure_nina_model(data_dir)) {
+                MINFO("[NINA] ✓ AI model present and verified");
+            } else {
+                MWARNING("[NINA] AI model not available — NINA will run in limited mode");
+            }
+        }
+        
         g_nina_advanced_ai = std::make_unique<NInaAdvancedCoordinator>();
         g_nina_sybil_detector = std::make_unique<SybilDetectorModule>();
         
@@ -179,8 +204,35 @@ inline void initialize_nina_advanced()
             learning.persistToLMDB(height);
         };
         
+        // Load memory system state (attack patterns + peer behaviors) from LMDB
+        {
+            auto& memory = ninacatcoin_ai::NINAMemorySystem::getInstance();
+            memory.initialize();
+            if (memory.loadFromLMDB()) {
+                MINFO("[NINA] ✓ Memory system state restored from LMDB");
+            }
+        }
+        
         // Load shared ML models received from peers
         nina_load_shared_models();
+        
+        // Initialize NINA Ring Controller & Enhancer (v18 adaptive ring system)
+        {
+            auto& ring_ctrl = ninacatcoin_ai::NinaRingController::getInstance();
+            auto& ring_enh  = ninacatcoin_ai::NinaRingEnhancer::getInstance();
+            
+            // Try to restore ASM model from LMDB
+            auto* bdb = NINAPersistenceManager::instance().get_blockchain_db();
+            if (bdb) {
+                std::string asm_data;
+                if (bdb->nina_state_get("ring_asm_model", asm_data)) {
+                    if (ring_enh.deserialize_model(asm_data)) {
+                        MINFO("[NINA-RING] ✓ Adaptive Spending Model restored from LMDB");
+                    }
+                }
+            }
+            MINFO("[NINA-RING] ✓ Ring Controller & Enhancer initialized (active at height 20000)");
+        }
         
         // Initialize NINA Constitution - fundamental governance framework
         MINFO("\n📜 LOADING NINA CONSTITUTION...");
@@ -224,6 +276,12 @@ inline void initialize_nina_advanced()
         MINFO("   ✓ Timing Attack Detection");
         MINFO("\n📈 TIER 6: MARKET INTELLIGENCE");
         MINFO("   ⏳ Awaiting price data integration");
+        MINFO("\n🔒 TIER 7: ADAPTIVE RING SIGNATURES (v18)");
+        MINFO("   ✓ NinaRingController — Threat-Level Ring Sizing");
+        MINFO("   ✓ NinaRingEnhancer — Intelligent Decoy Selection");
+        MINFO("   ✓ Ring Quality Score (RQS) — Privacy Metric");
+        MINFO("   ✓ Adaptive Spending Model (ASM) — Replaces Gamma");
+        MINFO("   ✓ Output Poison Detection & Avoidance");
         MINFO("\n" << std::string(80, '='));
         MINFO("✅ NINA ADVANCED AI FRAMEWORK READY");
         MINFO(std::string(80, '=') << "\n");
@@ -283,6 +341,18 @@ inline void nina_advanced_observe_block(
             block_solve_time
         );
         
+        // TIER 7: Ring Controller — feed per-block output data
+        {
+            auto& ring_ctrl = ninacatcoin_ai::NinaRingController::getInstance();
+            // Approximate per-block output counts from solve time patterns
+            // In production, the node would extract tx_count and output_count
+            // from the block itself.  Here we feed reasonable estimates.
+            uint64_t est_new_outputs = (block_solve_time < 10) ? 0 : 2; // ~2 outputs/block avg
+            uint64_t est_quick_spends = 0; // would parse mempool for fast spends
+            uint64_t est_txs = 1; // at least coinbase
+            ring_ctrl.observe_block_outputs(block_height, est_new_outputs, est_quick_spends, est_txs);
+        }
+        
         // *** Buffer this block record for LMDB persistence ***
         {
             PersistedBlockRecord record;
@@ -320,7 +390,34 @@ inline void nina_advanced_observe_block(
                 g_nina_persist_learning_fn(block_height);
             }
             
-            nina_audit_log(block_height, "STATE_PERSISTED", "NINA memory + learning metrics saved to LMDB");
+            // Persist memory system (attack patterns + peer behaviors)
+            {
+                auto& memory = ninacatcoin_ai::NINAMemorySystem::getInstance();
+                memory.persistToLMDB(block_height);
+            }
+            
+            // Persist ring decision + ASM model to LMDB (v18)
+            {
+                auto* bdb = NINAPersistenceManager::instance().get_blockchain_db();
+                if (bdb && block_height >= NINA_V18_RING_ACTIVE_HEIGHT) {
+                    // Save ring decision
+                    auto& ring_ctrl = ninacatcoin_ai::NinaRingController::getInstance();
+                    std::string ring_key = "ring_decision_" + std::to_string(block_height);
+                    bdb->nina_decision_put(ring_key, ring_ctrl.serialize_decision());
+                    
+                    // Save ASM model (every 15 blocks is fine, it changes slowly)
+                    auto& ring_enh = ninacatcoin_ai::NinaRingEnhancer::getInstance();
+                    bdb->nina_state_put("ring_asm_model", ring_enh.serialize_model());
+                    
+                    // Save current threat level in nina_state for quick access
+                    bdb->nina_state_put("ring_threat_level",
+                        std::to_string(static_cast<int>(ring_ctrl.get_current_level())));
+                    bdb->nina_state_put("ring_min_size",
+                        std::to_string(ring_ctrl.get_last_decision().min_ring_size));
+                }
+            }
+            
+            nina_audit_log(block_height, "STATE_PERSISTED", "NINA memory + learning + patterns + ring saved to LMDB");
         }
         
     } catch (const std::exception& e) {

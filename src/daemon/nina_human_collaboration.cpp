@@ -4,6 +4,7 @@
  */
 
 #include "nina_human_collaboration.hpp"
+#include "nina_llm_bridge.hpp"
 #include "discord_notifier.hpp"
 #include "misc_log_ex.h"
 #include <thread>
@@ -49,6 +50,26 @@ bool NINAHumanCollaboration::escalate_decision(
     MINFO("[ESCALATION] Urgency: " << urgency);
     MINFO("[ESCALATION] Situation: " << situation);
     MINFO("[ESCALATION] NINA Recommendation: " << nina_recommendation);
+    
+    // LLM: Enhance the situation description for human operators
+    std::string enhanced_situation = situation;
+    try {
+        auto& bridge = ninacatcoin_ai::NinaLLMBridge::getInstance();
+        if (bridge.is_available()) {
+            auto llm_esc = bridge.enhance_escalation(
+                "DECISION_ESCALATION", urgency, situation,
+                nina_recommendation, available_options);
+            if (llm_esc.valid && !llm_esc.situation_description.empty()) {
+                enhanced_situation = llm_esc.situation_description;
+                MINFO("[ESCALATION] [LLM Enhanced] " << enhanced_situation);
+                if (!llm_esc.risk_if_ignored.empty()) {
+                    MINFO("[ESCALATION] [LLM Risk] " << llm_esc.risk_if_ignored);
+                }
+                // Update the request with enhanced description
+                req.situation_description = enhanced_situation;
+            }
+        }
+    } catch (...) {}
     
     MINFO("[ESCALATION] Available Options:");
     for (size_t i = 0; i < available_options.size(); ++i) {
@@ -214,7 +235,27 @@ std::string NINAHumanCollaboration::generate_status_report()
     report << "   Human Override: ALWAYS AVAILABLE\n";
     report << "   Audit Trail: MAINTAINED\n\n";
 
-    report << "╚════════════════════════════════════════════════════════════╝\n";
+    // LLM: Enhance status report with AI summary
+    try {
+        auto& bridge = ninacatcoin_ai::NinaLLMBridge::getInstance();
+        if (bridge.is_available()) {
+            std::string metrics_str = "escalations=" + std::to_string(total)
+                + ",approvals=" + std::to_string(approvals)
+                + ",rejections=" + std::to_string(rejections)
+                + ",pending=" + std::to_string(pending);
+            std::string decisions_str = "approval_rate=" + std::to_string(satisfaction) + "%";
+            std::string alerts_str = (pending > 0) ? "PENDING_ESCALATIONS" : "ALL_CLEAR";
+            
+            std::string llm_report = bridge.generate_status_report(
+                metrics_str, decisions_str, alerts_str);
+            if (!llm_report.empty()) {
+                report << " AI ANALYSIS:\n";
+                report << "   " << llm_report << "\n\n";
+            }
+        }
+    } catch (...) {}
+
+    report << "\u2558\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255d\n";
 
     return report.str();
 }

@@ -152,6 +152,17 @@ public:
   virtual uint8_t get_hard_fork_version(uint64_t height) const override { return 0; }
   virtual void check_hard_fork_info() override {}
 
+  // NINA on-chain stubs (no-op for tests)
+  virtual void nina_state_put(const std::string&, const std::string&) override {}
+  virtual bool nina_state_get(const std::string&, std::string&) const override { return false; }
+  virtual void nina_block_put(uint64_t, const std::string&) override {}
+  virtual bool nina_block_get(uint64_t, std::string&) const override { return false; }
+  virtual bool nina_block_for_all(std::function<bool(uint64_t, const std::string&)>) const override { return true; }
+  virtual void nina_checkpoint_put(uint64_t, const std::string&) override {}
+  virtual void nina_decision_put(const std::string&, const std::string&) override {}
+  virtual void nina_audit_put(uint64_t, const std::string&) override {}
+  virtual uint64_t nina_block_count() const override { return 0; }
+
   virtual uint32_t get_blockchain_pruning_seed() const override { return 0; }
   virtual bool prune_blockchain(uint32_t pruning_seed = 0) override { return true; }
   virtual bool update_pruning() override { return true; }

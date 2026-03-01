@@ -54,15 +54,17 @@ add_library(ninacatcoin_ai STATIC
   nina_ring_enhancer.cpp
   nina_ia_auto_update.hpp
   nina_ia_auto_update.cpp
+  # NINA LLM integration
+  nina_model_validator.hpp
+  nina_llm_bridge.hpp
+  ai_embedded_model_weights.hpp
 )
 
 target_include_directories(ninacatcoin_ai
   PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${CMAKE_SOURCE_DIR}/src
-    ${CMAKE_SOURCE_DIR}/src/common
-    ${CMAKE_SOURCE_DIR}/src/crypto
-    ${CMAKE_SOURCE_DIR}/contrib/epee/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${CMAKE_CURRENT_SOURCE_DIR}/../../contrib/epee/include
     ${CMAKE_BINARY_DIR}/generated_include
     ${JSONCPP_INCLUDE_DIRS}
 )
@@ -82,12 +84,22 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
   )
 endif()
 
-# Link with common library and jsoncpp
+# Link with common library, jsoncpp, and OpenSSL (for NINA model SHA-256)
+find_package(OpenSSL)
+
 target_link_libraries(ninacatcoin_ai
   PUBLIC
     common
     ${JSONCPP_LIBRARIES}
 )
+
+if(OPENSSL_FOUND)
+  target_link_libraries(ninacatcoin_ai PUBLIC OpenSSL::Crypto)
+  message(STATUS "[AI] OpenSSL found — NINA model SHA-256 validation enabled")
+else()
+  message(STATUS "[AI] OpenSSL not found — using platform-native SHA-256")
+endif()
+
 
 # Ensure AI hash header is generated before compiling
 if(TARGET ai_integrity_hash)
@@ -110,6 +122,9 @@ ninacatcoin_install_headers("ai"
   ai_quarantine_system.hpp
   ai_version_checker.hpp
   full_integrity_verifier.hpp
+  nina_model_validator.hpp
+  nina_llm_bridge.hpp
+  ai_embedded_model_weights.hpp
 )
 
 # Set source group for IDE

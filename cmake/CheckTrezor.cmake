@@ -46,16 +46,22 @@ endmacro()
 
 # Use Trezor master switch
 if (USE_DEVICE_TREZOR)
-    # Look for protobuf-config.cmake, provided by Protobuf
-    find_package(Protobuf CONFIG)
-
-    if (Protobuf_FOUND)
-        # https://github.com/protocolbuffers/protobuf/issues/14576
-        find_program(Protobuf_PROTOC_EXECUTABLE protoc REQUIRED)
-        set(Protobuf_LIBRARY protobuf::libprotobuf) # Compatibility with FindProtobuf.cmake
-    else()
-        # Look for FindProtobuf.cmake, provided by CMake
+    if(STATIC AND MINGW AND NOT DEPENDS)
+        # Skip CONFIG mode which always points to shared libprotobuf.dll.a
+        # Use MODULE mode (FindProtobuf.cmake) which respects CMAKE_FIND_LIBRARY_SUFFIXES
         find_package(Protobuf)
+    else()
+        # Look for protobuf-config.cmake, provided by Protobuf
+        find_package(Protobuf CONFIG)
+
+        if (Protobuf_FOUND)
+            # https://github.com/protocolbuffers/protobuf/issues/14576
+            find_program(Protobuf_PROTOC_EXECUTABLE protoc REQUIRED)
+            set(Protobuf_LIBRARY protobuf::libprotobuf) # Compatibility with FindProtobuf.cmake
+        else()
+            # Look for FindProtobuf.cmake, provided by CMake
+            find_package(Protobuf)
+        endif()
     endif()
 
     # Early fail for optional Trezor support

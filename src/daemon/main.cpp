@@ -158,6 +158,9 @@ int main(int argc, char const * argv[])
       command_line::add_arg(core_settings, daemon_args::arg_zmq_rpc_bind_port);
       command_line::add_arg(core_settings, daemon_args::arg_zmq_pub);
       command_line::add_arg(core_settings, daemon_args::arg_zmq_rpc_disabled);
+      command_line::add_arg(core_settings, daemon_args::arg_nina_llm_mode);
+      command_line::add_arg(core_settings, daemon_args::arg_nina_llm_model);
+      command_line::add_arg(core_settings, daemon_args::arg_nina_llm_threads);
       command_line::add_arg(core_settings, daemonizer::arg_non_interactive);
 
       daemonizer::init_options(hidden_options, visible_options);

@@ -118,3 +118,11 @@ nbproject
 __pycache__/
 *.pyc
 *.log
+
+# Secrets — NEVER commit
+.env
+*.env
+tools/nina_discord_bot/.env
+
+# LLM models (too large for git)
+models/*.gguf

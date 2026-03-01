@@ -118,6 +118,38 @@
 #define NINA_LOCAL_SMOOTHING                             0.3 // dampening factor (0-1)
 #define NINA_LOCAL_MAX_ADJUST                            0.05 // max ±5% adjustment
 
+// ─── NINA AI LLM Model Configuration ────────────────────────────────────
+// SHA-256 hash of the official NINA GGUF model file.
+// Compiled into the binary — verified at daemon startup.
+// Llama-3.2-3B-Instruct QLoRA r64/a128 → Q4_K_M (1918 MB, 5.01 BPW)
+// Generated: nina-llama3.2-3b-Q4_K_M.gguf
+#define NINA_MODEL_HASH "5c7be16cf1cc6a6a4e46e5adb85acf684af228abd10ef70178e81f95d7562ca9"
+
+// Model file name (expected in data_dir)
+#define NINA_MODEL_FILENAME "nina_model.gguf"
+
+// Model download URLs (tried in order; SHA-256 verified after download)
+#define NINA_MODEL_DOWNLOAD_URL_PRIMARY   "https://huggingface.co/ninacatcoin/nina-model/resolve/main/nina-llama3.2-3b-Q4_K_M.gguf"
+#define NINA_MODEL_DOWNLOAD_URL_FALLBACK  "https://github.com/ninacatcoin/ninacatcoin/releases/download/v0.18/nina-llama3.2-3b-Q4_K_M.gguf"
+
+// Model size bounds (sanity check before loading)
+#define NINA_MODEL_MIN_SIZE_BYTES  (100ULL * 1024 * 1024)     // 100 MB minimum
+#define NINA_MODEL_MAX_SIZE_BYTES  (4ULL * 1024 * 1024 * 1024) // 4 GB maximum
+
+// Coinbase tags for NINA state embedding
+#define NINA_COINBASE_TAG_MODEL_HASH  0xCA  // Model SHA-256 in coinbase extra
+#define NINA_COINBASE_TAG_STATE       0xCB  // NINA state snapshot in coinbase extra
+
+// LLM inference settings (CPU-only for consensus determinism)
+#define NINA_LLM_N_GPU_LAYERS   0      // Must be 0 for deterministic consensus
+#define NINA_LLM_N_CTX          2048   // Context window
+#define NINA_LLM_N_THREADS      2      // Max threads for inference (sandboxed)
+#define NINA_LLM_TEMP           0.0f   // Temperature 0 = deterministic output
+
+// llama-server HTTP bridge (for non-consensus advisory queries)
+#define NINA_LLAMA_SERVER_HOST  "127.0.0.1"
+#define NINA_LLAMA_SERVER_PORT  8080
+
 
 #define CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V1   DIFFICULTY_TARGET_V1 * CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_BLOCKS
 #define CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_SECONDS_V2   DIFFICULTY_TARGET_V2 * CRYPTONOTE_LOCKED_TX_ALLOWED_DELTA_BLOCKS
@@ -237,6 +269,22 @@
 #define NINA_RING_16_RCT_THRESHOLD        100000ULL  // Ring 11 → 16
 #define NINA_RING_21_RCT_THRESHOLD        500000ULL  // Ring 16 → 21
 #define NINA_RING_GRACE_OUTPUTS           5000ULL    // Transition window
+
+// ─── NINA v18 Active Ring Control (height ≥ 20000) ─────────────────────
+// NINA transitions from passive observer to active ring controller.
+// Threat-level based dynamic ring sizing + intelligent decoy selection.
+#define NINA_V18_RING_ACTIVE_HEIGHT       20000ULL   // v18: NINA controls ring params
+#define NINA_RING_THREAT_NORMAL_MIXIN     15         // Level 0: Ring 16
+#define NINA_RING_THREAT_ELEVATED_MIXIN   20         // Level 1: Ring 21
+#define NINA_RING_THREAT_HIGH_MIXIN       25         // Level 2: Ring 26
+#define NINA_RING_THREAT_CRITICAL_MIXIN   30         // Level 3: Ring 31
+#define NINA_RING_THREAT_HYSTERESIS_UP    10         // Blocks to sustain before raising
+#define NINA_RING_THREAT_HYSTERESIS_DOWN  100        // Blocks of normal before lowering
+#define NINA_RING_GRACE_BLOCKS            50         // Grace window on ring increase
+#define NINA_RING_QUALITY_MIN             0.85f      // Minimum Ring Quality Score
+#define NINA_RING_ASM_UPDATE_INTERVAL     720        // Blocks between ASM model updates (~1 day)
+#define NINA_RING_POISON_THRESHOLD        0.7f       // Poison score to exclude output
+#define NINA_RING_THREAT_ANALYSIS_WINDOW  100        // Blocks for sliding threat window
 
 #define HF_VERSION_ENFORCE_RCT                  6
 #define HF_VERSION_PER_BYTE_FEE                 8

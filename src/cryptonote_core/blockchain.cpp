@@ -64,7 +64,9 @@
 #include "cryptonote_basic/account.h"
 #include "cryptonote_basic/cryptonote_format_utils.h"
 #include "daemon/nina_advanced_inline.hpp"
-#include "daemon/nina_ml_client.hpp"
+#include "daemon/nina_ring_controller.hpp"
+#include "ai/ai_embedded_model_weights.hpp"
+#include "daemon/nina_llm_engine.hpp"
 #include "daemon/nina_learning_module.hpp"
 #include "daemon/nina_block_data_logger.hpp"
 
@@ -3493,8 +3495,55 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
     // ensuring deterministic consensus on the required ring size.
     size_t nina_prev_mixin = min_mixin;
     bool nina_grace = false;
-    if (m_db->height() >= NINA_ADAPTIVE_RING_START_HEIGHT)
+
+    // ─── v18+ NINA Active Ring Control ──────────────────────────────────
+    // When height >= 20000, NinaRingController evaluates threat level
+    // and may require larger rings dynamically.  The legacy thresholds
+    // become the FLOOR — NINA can only go HIGHER, never lower.
+    if (m_db->height() >= NINA_V18_RING_ACTIVE_HEIGHT)
     {
+      const uint64_t num_rct = m_db->get_num_outputs(0);
+
+      // Gather threat metrics from blockchain (deterministic on all nodes)
+      // outputs_last_100: count new outputs in sliding 100-block window
+      uint64_t outputs_last_100 = 0;
+      uint64_t spends_within_10 = 0;
+      {
+        // Approximate: use total RCT outputs growth in last 100 blocks
+        uint64_t window_start = (m_db->height() > 100) ? (m_db->height() - 100) : 0;
+        // Since exact per-block output counts aren't cheaply queryable,
+        // we use the total and assume linear growth for the metric.
+        // The NinaRingController feeds from observe_block_outputs() for precise data.
+        // Here we provide a reasonable approximation for verification.
+        outputs_last_100 = num_rct / std::max(m_db->height(), uint64_t(1)) * 100;
+      }
+
+      // Hashrate drop: compare current difficulty vs 60-block average
+      float hashrate_drop_pct = 0.0f;
+      // Sybil score: would come from NINA memory system at runtime
+      float sybil_score = 0.0f;
+
+      auto& ring_ctrl = ninacatcoin_ai::NinaRingController::getInstance();
+      size_t nina_mixin = ring_ctrl.evaluate_min_mixin(
+          m_db->height(), num_rct, hf_version,
+          outputs_last_100, spends_within_10,
+          hashrate_drop_pct, sybil_score);
+
+      nina_prev_mixin = min_mixin;
+      min_mixin = std::max(min_mixin, nina_mixin);
+      nina_grace = ring_ctrl.is_in_grace_period(m_db->height(), nina_prev_mixin);
+
+      if (min_mixin > 15) {
+        MINFO("NINA v18 Ring Control: requiring mixin " << min_mixin
+              << " (ring " << (min_mixin + 1) << ") threat="
+              << ninacatcoin_ai::NinaRingController::threat_level_name(ring_ctrl.get_current_level())
+              << " based on " << num_rct << " RCT outputs"
+              << (nina_grace ? " [grace period active]" : ""));
+      }
+    }
+    else if (m_db->height() >= NINA_ADAPTIVE_RING_START_HEIGHT)
+    {
+      // ─── Pre-v18: legacy RCT-threshold adaptive ring ──────────────────
       const uint64_t num_rct = m_db->get_num_outputs(0);
       if (num_rct >= NINA_RING_21_RCT_THRESHOLD) {
         nina_prev_mixin = 15;
@@ -4368,13 +4417,26 @@ leave:
   // Calculates REAL features from blockchain state and feeds them into the
   // in-process learning module for anomaly detection via statistical analysis.
   // Advisory only: NEVER affects block acceptance (no consensus impact).
+  //
+  // SYNC OPTIMIZATION: During initial block download (IBD), skip heavy ML
+  // analysis to avoid freezing the daemon. Only sample every 100 blocks
+  // for statistics. LLM deep analysis is completely disabled during sync.
   try
   {
     auto& nina_ml = ninacatcoin_ai::NINALearningModule::getInstance();
 
-    // --- Adaptive lookback: shorter during sync for speed ---
+    // --- Sync detection: timestamp-based (block >30 min old = historical sync) ---
     const uint64_t chain_tip = m_db->height();
-    const bool is_syncing = (chain_tip > blockchain_height + 5);
+    const bool is_syncing = (chain_tip > blockchain_height + 5)
+                         || (bl.timestamp + 1800 < static_cast<uint64_t>(time(NULL)));
+
+    // During sync, only run ML on every 100th block for lightweight statistics
+    if (is_syncing && (blockchain_height % 100 != 0))
+    {
+      // Skip ML entirely for this block — just feed basic metrics for Welford stats
+      nina_ml.recordMetric("difficulty", static_cast<double>(current_diffic));
+      goto skip_phase1_ml;
+    }
     const uint64_t health_lookback  = is_syncing ? std::min(blockchain_height, (uint64_t)10)
                                                  : std::min(blockchain_height, (uint64_t)60);
     const uint64_t rep_lookback     = is_syncing ? std::min(blockchain_height, (uint64_t)15)
@@ -4482,6 +4544,7 @@ leave:
   {
     MWARNING("[NINA-ML] PHASE 1 exception: " << e.what() << " - continuing with legacy validation");
   }
+  skip_phase1_ml:
   // ========== END PHASE 1 ML VALIDATION ==========
 
   // verify all non-input consensus rules for txs inside the pool supplement (if not inside checkpoint zone)
@@ -4824,6 +4887,7 @@ leave:
   }
 
   // 📊 NINA BlockDataLogger — record real block features to CSV for ML training
+  // 🤖 NINA Embedded ML — score block anomaly using compiled-in model
   try {
     auto& bdl = ninacatcoin_ai::BlockDataLogger::getInstance();
     uint64_t block_solve_time = 120; // default
@@ -4845,6 +4909,64 @@ leave:
       }
       hash_ent = transitions;
     }
+
+    // --- Embedded ML anomaly scoring (advisory only, never rejects blocks) ---
+    double ml_confidence = 0.0;
+    double ml_risk_score = 0.0;
+    try {
+      double prev_diff = (new_height > 2) ?
+        static_cast<double>(m_db->get_block_cumulative_difficulty(new_height - 2) -
+                            (new_height > 3 ? m_db->get_block_cumulative_difficulty(new_height - 3) : 0)) : 1.0;
+      double diff_change = (prev_diff > 0) ?
+        (static_cast<double>(current_diffic) - prev_diff) / prev_diff : 0.0;
+
+      auto ml_result = ninacatcoin_ai::score_block_anomaly(
+        static_cast<uint64_t>(block_solve_time),
+        static_cast<uint64_t>(current_diffic),
+        static_cast<uint64_t>(prev_diff > 0 ? prev_diff : 1),
+        static_cast<uint32_t>(hash_ent),
+        static_cast<uint64_t>(cumulative_block_weight),
+        static_cast<uint32_t>(bl.tx_hashes.size() + 1)
+      );
+      ml_confidence = ml_result.confidence;
+      ml_risk_score = ml_result.risk_score;
+      MDEBUG("[NINA-EMBEDDED-ML] height=" << (new_height - 1)
+             << " confidence=" << ml_result.confidence
+             << " risk=" << ml_result.risk_score
+             << " flags=" << ml_result.anomaly_flags);
+
+      // --- NINA LLM deep analysis for high-risk blocks ---
+      // SYNC OPTIMIZATION: Skip LLM inference entirely during sync.
+      // LLM can take 1-10+ seconds per block which freezes the daemon during IBD.
+      // Only analyze live blocks at chain tip.
+      const bool is_syncing_llm = (bl.timestamp + 1800 < static_cast<uint64_t>(time(NULL)));
+      if (ml_result.risk_score > 0.7 && !is_syncing_llm) {
+        try {
+          auto& llm = ninacatcoin_ai::NinaLLMEngine::getInstance();
+          if (llm.is_enabled()) {
+            auto llm_result = llm.analyze_block_anomaly(
+              new_height - 1, block_solve_time, hash_ent,
+              diff_change * 100.0, cumulative_block_weight,
+              static_cast<uint32_t>(bl.tx_hashes.size() + 1),
+              ml_result.risk_score, ml_result.confidence);
+            if (llm_result.success) {
+              MINFO("[NINA-LLM] Block " << (new_height - 1) << " analysis:"
+                    << " threat=" << llm_result.threat_level
+                    << " action=" << llm_result.recommended_action
+                    << " (" << llm_result.inference_ms << "ms)");
+            }
+          }
+        } catch (...) {
+          // LLM analysis should NEVER break consensus
+        }
+      } else if (ml_result.risk_score > 0.7) {
+        MDEBUG("[NINA-LLM] Skipped LLM for historical block " << (new_height - 1)
+               << " (risk=" << ml_result.risk_score << ", syncing)");
+      }
+    } catch (const std::exception& ml_ex) {
+      MWARNING("[NINA-EMBEDDED-ML] scoring error: " << ml_ex.what());
+    }
+
     bdl.log_block(
       new_height - 1,
       bl.timestamp,
@@ -4856,8 +4978,8 @@ leave:
       net_health,
       miner_div,
       hash_ent,
-      0.0,  // ml_confidence (not available here)
-      0.0,  // ml_risk_score (not available here)
+      ml_confidence,
+      ml_risk_score,
       true  // block_accepted
     );
   } catch (...) {
@@ -6103,6 +6225,49 @@ bool Blockchain::load_checkpoints_dat_from_file(const std::string &file_path)
 #else
   return false;
 #endif
+}
+
+bool Blockchain::run_nina_checkpoint_cycle(const std::string& data_dir)
+{
+  // NINA P2P checkpoint generation cycle
+  // Called periodically by the daemon (every NINA_CHECKPOINT_CYCLE_SECONDS = 3600s)
+  //
+  // Orchestrates:
+  //   1. checkpoint.run_checkpoint_cycle() — generates .json + .dat locally
+  //   2. Updates m_blocks_hash_of_hashes from newly generated .dat
+  //   3. P2P broadcast is handled by the protocol handler after state update
+  try
+  {
+    MINFO("[NINA P2P] ══════════════════════════════════════════════");
+    MINFO("[NINA P2P] Blockchain::run_nina_checkpoint_cycle starting");
+    MINFO("[NINA P2P]   Height: " << m_db->height());
+    MINFO("[NINA P2P]   Data dir: " << data_dir);
+    MINFO("[NINA P2P] ══════════════════════════════════════════════");
+
+    // Run the checkpoint generation cycle (generates both .json and .dat)
+    bool result = m_checkpoints.run_checkpoint_cycle(data_dir, m_db);
+
+    if (!result)
+    {
+      MWARNING("[NINA P2P] Checkpoint cycle returned false (non-fatal)");
+      return false;
+    }
+
+    // Try to load the newly generated .dat into m_blocks_hash_of_hashes
+    std::string dat_path = data_dir + "/" + DAT_HASH_FILE_NAME;
+    if (load_checkpoints_dat_from_file(dat_path))
+    {
+      MINFO("[NINA P2P] ✓ Updated block hash groups from locally generated checkpoints.dat");
+    }
+
+    MINFO("[NINA P2P] Checkpoint cycle complete — state ready for P2P broadcast");
+    return true;
+  }
+  catch (const std::exception& e)
+  {
+    MERROR("[NINA P2P] Exception in run_nina_checkpoint_cycle: " << e.what());
+    return false;
+  }
 }
 
 void Blockchain::lock()

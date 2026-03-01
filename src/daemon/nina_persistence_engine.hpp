@@ -6,6 +6,9 @@
 #include <cstdint>
 #include <ctime>
 
+// Forward declaration for on-chain persistence (v18+)
+namespace cryptonote { class BlockchainDB; }
+
 namespace ninacatcoin_ai {
 
 // Data structures for persistence
@@ -66,6 +69,10 @@ public:
     static bool initialize(const std::string& path);
     static bool shutdown();
     
+    // V18 on-chain DB registration
+    static void set_blockchain_db(cryptonote::BlockchainDB* db) { s_blockchain_db = db; }
+    static cryptonote::BlockchainDB* get_blockchain_db() { return s_blockchain_db; }
+    
     // Decision Records (TIER 4 Security)
     static bool save_decision_record(const DecisionRecord& record);
     static bool get_decision_record(const std::string& decision_id, DecisionRecord& out_record);
@@ -102,6 +109,7 @@ public:
 private:
     static std::string db_path;
     static bool is_initialized;
+    static cryptonote::BlockchainDB* s_blockchain_db;
     
     // Serialization helpers
     static std::string serialize_decision_record(const DecisionRecord& record);

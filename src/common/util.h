@@ -42,6 +42,11 @@
 
 #ifdef _WIN32
 #include "windows.h"
+// WIN32_LEAN_AND_MEAN excludes rpc.h from windows.h, but COM/shell headers
+// need the full RPC infrastructure. Include it, then undo the damage:
+// rpc.h #defines 'interface' to 'struct', which clashes with epee code.
+#include <rpc.h>
+#undef interface
 #include "misc_log_ex.h"
 #endif
 

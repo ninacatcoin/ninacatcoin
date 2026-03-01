@@ -138,6 +138,25 @@ namespace daemon_args
   , "Disable ZMQ RPC server"
   };
 
+  // ============================================================================
+  // NINA LLM Configuration
+  // ============================================================================
+  const command_line::arg_descriptor<std::string> arg_nina_llm_mode = {
+    "nina-llm-mode"
+  , "NINA LLM mode: active (2.5GB RAM, instant), lazy (load on demand), disabled (no LLM)"
+  , "active"
+  };
+  const command_line::arg_descriptor<std::string> arg_nina_llm_model = {
+    "nina-llm-model"
+  , "Path to NINA LLM model file (.gguf). Default: auto-detected from ~/.ninacatcoin/"
+  , ""
+  };
+  const command_line::arg_descriptor<int> arg_nina_llm_threads = {
+    "nina-llm-threads"
+  , "Number of CPU threads for NINA LLM inference (0 = auto)"
+  , 0
+  };
+
 }  // namespace daemon_args
 
 #endif // DAEMON_COMMAND_LINE_ARGS_H

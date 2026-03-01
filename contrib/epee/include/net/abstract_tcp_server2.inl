@@ -324,7 +324,7 @@ namespace net_utils
   void connection<T>::start_read()
   {
     if (m_state.timers.throttle.in.wait_expire || m_state.socket.wait_read ||
-      m_state.socket.handle_read
+      m_state.socket.handle_read || m_state.socket.shutdown_read
     ) {
       return;
     }
@@ -444,6 +444,26 @@ namespace net_utils
           );
         }
       );
+  }
+
+  template<typename T>
+  void connection<T>::finish_read()
+  {
+    m_state.socket.shutdown_read = true;
+    if (m_state.socket.wait_read) {
+      m_state.socket.cancel_read = true;
+      cancel_socket();
+    }
+  }
+
+  template<typename T>
+  void connection<T>::terminate_async()
+  {
+    boost::asio::post(m_strand, [self = connection<T>::shared_from_this(), this]{
+      std::lock_guard<std::mutex> guard(m_state.lock);
+      if (m_state.status == status_t::RUNNING)
+        interrupt();
+    });
   }
 
   template<typename T>

@@ -1,5 +1,6 @@
 #include "nina_persistence_engine.hpp"
 #include "misc_log_ex.h"
+#include "blockchain_db/blockchain_db.h"
 #include <fstream>
 #include <sstream>
 #include <algorithm>
@@ -13,6 +14,7 @@ namespace ninacatcoin_ai {
 // Static member initialization
 std::string NINaPersistenceEngine::db_path = "";
 bool NINaPersistenceEngine::is_initialized = false;
+cryptonote::BlockchainDB* NINaPersistenceEngine::s_blockchain_db = nullptr;
 
 bool NINaPersistenceEngine::initialize(const std::string& path) {
     try {
@@ -87,11 +89,24 @@ bool NINaPersistenceEngine::save_decision_record(const DecisionRecord& record) {
     if (!is_initialized) return false;
     
     try {
+        std::string serialized = serialize_decision_record(record);
+
+        // V18 on-chain route
+        if (s_blockchain_db) {
+            try {
+                s_blockchain_db->nina_decision_put(record.decision_id, serialized);
+                return true;
+            } catch (...) {
+                // Fall through to flat file
+            }
+        }
+
+        // Pre-v18: flat file
         std::string filepath = db_path + "/decisions.json";
         std::ofstream file(filepath, std::ios::app);
         if (!file.is_open()) return false;
         
-        file << serialize_decision_record(record) << "\n";
+        file << serialized << "\n";
         file.close();
         
         return true;
@@ -215,11 +230,22 @@ bool NINaPersistenceEngine::save_governance_proposal(const GovernanceProposalRec
     if (!is_initialized) return false;
     
     try {
+        std::string serialized = serialize_proposal_record(record);
+
+        // V18 on-chain route — proposals go as decisions with "GOV_" prefix
+        if (s_blockchain_db) {
+            try {
+                s_blockchain_db->nina_decision_put("GOV_" + record.proposal_id, serialized);
+                return true;
+            } catch (...) { /* Fall through */ }
+        }
+
+        // Pre-v18: flat file
         std::string filepath = db_path + "/proposals.json";
         std::ofstream file(filepath, std::ios::app);
         if (!file.is_open()) return false;
         
-        file << serialize_proposal_record(record) << "\n";
+        file << serialized << "\n";
         file.close();
         return true;
     } catch (const std::exception& e) {
@@ -326,11 +352,22 @@ bool NINaPersistenceEngine::save_learning_pattern(const LearningPatternRecord& r
     if (!is_initialized) return false;
     
     try {
+        std::string serialized = serialize_pattern_record(record);
+
+        // V18 on-chain route
+        if (s_blockchain_db) {
+            try {
+                s_blockchain_db->nina_decision_put("PAT_" + record.pattern_id, serialized);
+                return true;
+            } catch (...) { /* Fall through */ }
+        }
+
+        // Pre-v18: flat file
         std::string filepath = db_path + "/patterns.json";
         std::ofstream file(filepath, std::ios::app);
         if (!file.is_open()) return false;
         
-        file << serialize_pattern_record(record) << "\n";
+        file << serialized << "\n";
         file.close();
         return true;
     } catch (const std::exception& e) {
@@ -449,11 +486,22 @@ bool NINaPersistenceEngine::save_escalation(const EscalationRecord& record) {
     if (!is_initialized) return false;
     
     try {
+        std::string serialized = serialize_escalation_record(record);
+
+        // V18 on-chain route
+        if (s_blockchain_db) {
+            try {
+                s_blockchain_db->nina_decision_put("ESC_" + record.escalation_id, serialized);
+                return true;
+            } catch (...) { /* Fall through */ }
+        }
+
+        // Pre-v18: flat file
         std::string filepath = db_path + "/escalations.json";
         std::ofstream file(filepath, std::ios::app);
         if (!file.is_open()) return false;
         
-        file << serialize_escalation_record(record) << "\n";
+        file << serialized << "\n";
         file.close();
         return true;
     } catch (const std::exception& e) {

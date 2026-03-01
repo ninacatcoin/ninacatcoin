@@ -33,7 +33,11 @@
 #include "daemonizer/windows_service_runner.h"
 #include "cryptonote_core/cryptonote_core.h"
 
+// rpc.h was included by util.h — interface was #undef'd for epee.
+// Re-define it for COM/shell headers, then remove again.
+#define interface struct
 #include <shlobj.h>
+#undef interface
 #include <boost/filesystem/operations.hpp>
 #include <boost/filesystem/path.hpp>
 
@@ -86,23 +90,20 @@ namespace daemonizer
 
   inline boost::filesystem::path get_default_data_dir()
   {
-    bool admin;
-    if (!windows::check_admin(admin))
-    {
-      admin = false;
-    }
-    if (admin)
-    {
+    // Always use per-user directory: C:\Users\Username\.ninacatcoin
+    // This keeps blockchain data, config, logs, and models in one place
+    // regardless of whether running as admin or not.
+    const char* home = std::getenv("USERPROFILE");
+    if (!home) home = std::getenv("HOME");
+    if (home && strlen(home) > 0) {
       return boost::filesystem::absolute(
-          tools::get_special_folder_path(CSIDL_COMMON_APPDATA, true) + "\\" + CRYPTONOTE_NAME
+          std::string(home) + "\\." + CRYPTONOTE_NAME
         );
     }
-    else
-    {
-      return boost::filesystem::absolute(
-          tools::get_special_folder_path(CSIDL_APPDATA, true) + "\\" + CRYPTONOTE_NAME
-        );
-    }
+    // Fallback: AppData\Roaming (per-user, never ProgramData)
+    return boost::filesystem::absolute(
+        tools::get_special_folder_path(CSIDL_APPDATA, true) + "\\" + CRYPTONOTE_NAME
+      );
   }
 
   inline boost::filesystem::path get_relative_path_base(

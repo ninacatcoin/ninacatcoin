@@ -4,6 +4,7 @@
 #include "nina_suggestion_engine.hpp"
 #include "nina_constitution.hpp"
 #include "nina_persistent_memory.hpp"
+#include "nina_llm_bridge.hpp"
 #include <iostream>
 #include <sstream>
 #include <chrono>
@@ -129,6 +130,30 @@ Suggestion* NINASuggestionEngine::createSuggestion(
     // Mark as constitutional
     suggestion.constitutional_check = "PASSED: Suggestion respects all 10 Constitutional Constraints";
     
+    // LLM: Enhance suggestion description with deeper analysis
+    try {
+        auto& bridge = NinaLLMBridge::getInstance();
+        if (bridge.is_available()) {
+            std::string type_str;
+            switch (type) {
+                case SuggestionType::ATTACK_PATTERN_MITIGATION: type_str = "ATTACK_MITIGATION"; break;
+                case SuggestionType::PEER_ISOLATION: type_str = "PEER_ISOLATION"; break;
+                case SuggestionType::CONSENSUS_PROTECTION: type_str = "CONSENSUS_PROTECTION"; break;
+                case SuggestionType::PERFORMANCE_OPTIMIZATION: type_str = "PERFORMANCE_OPT"; break;
+                case SuggestionType::SECURITY_HARDENING: type_str = "SECURITY_HARDENING"; break;
+                case SuggestionType::DEFENSE_IMPROVEMENT: type_str = "DEFENSE_IMPROVEMENT"; break;
+            }
+            std::string rationale_str;
+            for (const auto& r : rationale) rationale_str += r + "; ";
+            
+            auto llm_suggestion = bridge.generate_smart_suggestion(
+                type_str, description, rationale_str);
+            if (llm_suggestion.valid && !llm_suggestion.description.empty()) {
+                suggestion.description += "\n[LLM Enhancement] " + llm_suggestion.description;
+            }
+        }
+    } catch (...) {}
+    
     // Add to pending suggestions
     pending_suggestions.push_back(suggestion);
     total_suggestions++;
@@ -248,6 +273,25 @@ std::string NINASuggestionEngine::getCurrentThinking() const {
     ss << "  Approval rate: " << getApprovalRate() * 100.0 << "%\n";
     ss << "  Status: Waiting for human guidance\n";
     
+    // LLM: Add AI-powered thinking summary
+    try {
+        auto& bridge = NinaLLMBridge::getInstance();
+        if (bridge.is_available() && !pending_suggestions.empty()) {
+            std::stringstream context;
+            context << "pending=" << pending_suggestions.size()
+                    << ",approved=" << approved_suggestions
+                    << ",rejected=" << rejected_suggestions;
+            std::string recent;
+            for (size_t i = 0; i < std::min(pending_suggestions.size(), (size_t)3); i++) {
+                recent += pending_suggestions[i].title + "; ";
+            }
+            auto llm_s = bridge.generate_smart_suggestion("THINKING_SUMMARY", context.str(), recent);
+            if (llm_s.valid) {
+                ss << "  [LLM Insight] " << llm_s.description << "\n";
+            }
+        }
+    } catch (...) {}
+    
     return ss.str();
 }
 
@@ -296,9 +340,12 @@ bool NINASuggestionEngine::persistToLMDB(uint64_t current_height) {
         std::cout << "[NINA-Suggestions]   Rechazadas: " << rejected_suggestions << std::endl;
         std::cout << "[NINA-Suggestions]   Approval Rate: " << (getApprovalRate() * 100.0) << "%" << std::endl;
         
-        // Llamar a persistencia
+        // Llamar a persistencia con datos ya serializados
         daemonize::persist_suggestion_engine_data(
-            (void*)&pending_suggestions
+            pending_stream.str(),
+            history_stream.str(),
+            pending_suggestions.size(),
+            historical_suggestions.size()
         );
         
         // Auditar evento
@@ -322,15 +369,71 @@ bool NINASuggestionEngine::persistToLMDB(uint64_t current_height) {
 bool NINASuggestionEngine::loadFromLMDB() {
     try {
         std::cout << "[NINA-Suggestions] === CARGA DE DATOS LMDB INICIADA ===" << std::endl;
-        std::cout << "[NINA-Suggestions] DATA.MDB: ~/.ninacatcoin/lmdb/data.mdb" << std::endl;
-        
-        // En implementación real:
-        // mdb_get(txn, dbi, "nina:suggestions", &data);
-        
-        std::cout << "[NINA-Suggestions] ✓ " << pending_suggestions.size() << " sugerencias pendientes restauradas" << std::endl;
-        std::cout << "[NINA-Suggestions] ✓ " << historical_suggestions.size() << " sugerencias históricas restauradas" << std::endl;
+
+        std::string pending_data, history_data;
+        if (!daemonize::load_suggestion_engine_data(pending_data, history_data)) {
+            std::cout << "[NINA-Suggestions] No previous suggestion data found (first run)" << std::endl;
+            return false;
+        }
+
+        // Parse pending suggestions
+        if (!pending_data.empty()) {
+            std::istringstream pstream(pending_data);
+            std::string line;
+            size_t loaded = 0;
+            while (std::getline(pstream, line)) {
+                if (line.empty()) continue;
+                // Format: id|type|title|desc|confidence|change|timestamp|approved|approval_ts|approved_by
+                std::istringstream ls(line);
+                Suggestion sug;
+                std::string token;
+                if (std::getline(ls, sug.suggestion_id, '|') &&
+                    std::getline(ls, token, '|')) {
+                    sug.type = static_cast<SuggestionType>(std::stoi(token));
+                    if (std::getline(ls, sug.title, '|')) {}
+                    if (std::getline(ls, sug.description, '|')) {}
+                    if (std::getline(ls, token, '|')) sug.confidence = std::stod(token);
+                    if (std::getline(ls, sug.requested_change, '|')) {}
+                    if (std::getline(ls, token, '|')) sug.creation_timestamp = (time_t)std::stoll(token);
+                    if (std::getline(ls, token, '|')) sug.is_approved_by_human = (token == "1");
+                    if (std::getline(ls, token, '|')) sug.approval_timestamp = (time_t)std::stoll(token);
+                    if (std::getline(ls, sug.approved_by, '|')) {}
+                    pending_suggestions.push_back(sug);
+                    loaded++;
+                }
+            }
+            std::cout << "[NINA-Suggestions] ✓ " << loaded << " sugerencias pendientes restauradas" << std::endl;
+        }
+
+        // Parse historical suggestions
+        if (!history_data.empty()) {
+            std::istringstream hstream(history_data);
+            std::string line;
+            size_t loaded = 0;
+            while (std::getline(hstream, line)) {
+                if (line.empty()) continue;
+                std::istringstream ls(line);
+                Suggestion sug;
+                std::string token;
+                if (std::getline(ls, sug.suggestion_id, '|') &&
+                    std::getline(ls, token, '|')) {
+                    sug.type = static_cast<SuggestionType>(std::stoi(token));
+                    if (std::getline(ls, sug.title, '|')) {}
+                    if (std::getline(ls, sug.description, '|')) {}
+                    if (std::getline(ls, token, '|')) sug.confidence = std::stod(token);
+                    if (std::getline(ls, sug.requested_change, '|')) {}
+                    if (std::getline(ls, token, '|')) sug.creation_timestamp = (time_t)std::stoll(token);
+                    if (std::getline(ls, token, '|')) sug.is_approved_by_human = (token == "1");
+                    if (std::getline(ls, token, '|')) sug.approval_timestamp = (time_t)std::stoll(token);
+                    if (std::getline(ls, sug.approved_by, '|')) {}
+                    historical_suggestions.push_back(sug);
+                    loaded++;
+                }
+            }
+            std::cout << "[NINA-Suggestions] ✓ " << loaded << " sugerencias históricas restauradas" << std::endl;
+        }
+
         std::cout << "[NINA-Suggestions] === CARGA COMPLETADA ===" << std::endl;
-        
         return true;
     } catch (const std::exception& e) {
         std::cout << "[NINA-Suggestions] Advertencia: No se pudo cargar estado anterior: " << e.what() << std::endl;

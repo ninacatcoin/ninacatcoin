@@ -74,8 +74,11 @@ using namespace epee;
 #define STRSAFE_NO_DEPRECATE
 #endif
   #include <windows.h>
+  #include <rpc.h>
+  // Keep interface=struct (from rpc.h) active for COM headers:
   #include <shlobj.h>
   #include <strsafe.h>
+  #undef interface  // Now remove it so epee's interface struct compiles
 #else 
   #include <sys/file.h>
   #include <sys/stat.h>
@@ -364,14 +367,22 @@ namespace tools
   {
     /* Please for the love of god refactor  the ifdefs out of this */
 
-    // namespace fs = boost::filesystem;
-    // Windows < Vista: C:\Documents and Settings\Username\Application Data\CRYPTONOTE_NAME
-    // Windows >= Vista: C:\Users\Username\AppData\Roaming\CRYPTONOTE_NAME
-    // Unix & Mac: ~/.CRYPTONOTE_NAME
+    // All platforms: ~/.<name>
+    // Windows: C:\Users\Username\.ninacatcoin
+    // Unix & Mac: ~/.ninacatcoin
     std::string config_folder;
 
 #ifdef WIN32
-    config_folder = get_special_folder_path(CSIDL_COMMON_APPDATA, true) + "\\" + CRYPTONOTE_NAME;
+    // Use USERPROFILE (C:\Users\Username) to keep data per-user, not in ProgramData
+    const char* home = getenv("USERPROFILE");
+    if (!home || strlen(home) == 0)
+      home = getenv("HOME");
+    if (!home || strlen(home) == 0) {
+      // Last resort: use AppData\Roaming
+      config_folder = get_special_folder_path(CSIDL_APPDATA, true) + "\\" + CRYPTONOTE_NAME;
+    } else {
+      config_folder = std::string(home) + "\\." + CRYPTONOTE_NAME;
+    }
 #else
     std::string pathRet;
     char* pszHome = getenv("HOME");

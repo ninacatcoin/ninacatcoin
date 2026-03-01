@@ -407,6 +407,19 @@ private:
   void check_hard_fork_info() override;
   void drop_hard_fork_info() override;
 
+  // ═══════════════════════════════════════════════════════════════════
+  // NINA on-chain persistence (v18 hard fork — DB version 6)
+  // ═══════════════════════════════════════════════════════════════════
+  void nina_state_put(const std::string& key, const std::string& value) override;
+  bool nina_state_get(const std::string& key, std::string& value) const override;
+  void nina_block_put(uint64_t height, const std::string& data) override;
+  bool nina_block_get(uint64_t height, std::string& data) const override;
+  bool nina_block_for_all(std::function<bool(uint64_t height, const std::string& data)> f) const override;
+  void nina_checkpoint_put(uint64_t height, const std::string& data) override;
+  void nina_decision_put(const std::string& decision_id, const std::string& data) override;
+  void nina_audit_put(uint64_t timestamp_key, const std::string& data) override;
+  uint64_t nina_block_count() const override;
+
   inline void check_open() const;
 
   bool prune_worker(int mode, uint32_t pruning_seed);
@@ -441,6 +454,9 @@ private:
   // migrate from DB version 4 to 5
   void migrate_4_5();
 
+  // migrate from DB version 5 to 6 — create NINA on-chain tables (v18 hard fork)
+  void migrate_5_6();
+
   void cleanup_batch();
 
 private:
@@ -472,6 +488,16 @@ private:
   MDB_dbi m_hf_versions;
 
   MDB_dbi m_properties;
+
+  // NINA on-chain tables (v18 hard fork — DB version 6)
+  // These live in the SAME data.mdb as blocks/txs — no separate database.
+  // Before v18 (height < 20000): NINA uses ~/.ninacatcoin/nina_state/data.mdb
+  // After  v18 (height >= 20000): NINA writes directly here.
+  MDB_dbi m_nina_state;       // key="current" → serialized NINA statistics + meta
+  MDB_dbi m_nina_blocks;      // key=height(8B BE) → serialized PersistedBlockRecord
+  MDB_dbi m_nina_checkpoints; // key=height(8B BE) → checkpoint hash + metadata
+  MDB_dbi m_nina_decisions;   // key=decision_id → serialized DecisionRecord
+  MDB_dbi m_nina_audit;       // key=timestamp(8B BE) → "height|event|details"
 
   mutable uint64_t m_cum_size;	// used in batch size estimation
   mutable unsigned int m_cum_count;

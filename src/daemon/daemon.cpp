@@ -35,6 +35,7 @@
 #include "daemon/daemon.h"
 #include "daemon/ai_integration.h"
 #include "daemon/nina_advanced_inline.hpp"
+#include "daemon/nina_llm_engine.hpp"
 #include "rpc/daemon_handler.h"
 #include "rpc/zmq_pub.h"
 #include "rpc/zmq_server.h"
@@ -195,7 +196,50 @@ t_daemon::t_daemon(
   // Initialize NINA Advanced AI Framework (6 Tiers)
   MINFO("\n[Daemon] Initializing NINA Advanced AI Framework...");
   daemonize::initialize_nina_advanced();
+
+  // Register blockchain DB pointer for NINA on-chain persistence (v18+)
+  {
+    auto& blockchain = mp_internals->core.get().get_blockchain_storage();
+    auto* db = &blockchain.get_db();
+    NINAPersistenceManager::instance().set_blockchain_db(db);
+    ninacatcoin_ai::NINaPersistenceEngine::set_blockchain_db(db);
+    MINFO("[NINA-V18] Blockchain DB registered for on-chain persistence (active at height " << NINA_V18_ONCHAIN_HEIGHT << ")");
+  }
+
   MINFO("[Daemon] NINA Advanced AI Framework Ready!\n");
+
+  // Initialize NINA LLM Engine (LLaMA 3.2 3B)
+  MINFO("\n[Daemon] Initializing NINA LLM Engine...");
+  {
+    ninacatcoin_ai::LLMConfig llm_config;
+
+    // Parse LLM mode from command line
+    std::string llm_mode_str = "active";
+    if (vm.count("nina-llm-mode")) {
+      llm_mode_str = command_line::get_arg(vm, daemon_args::arg_nina_llm_mode);
+    }
+    if (llm_mode_str == "disabled" || llm_mode_str == "off") {
+      llm_config.mode = ninacatcoin_ai::LLMMode::DISABLED;
+    } else if (llm_mode_str == "lazy") {
+      llm_config.mode = ninacatcoin_ai::LLMMode::LAZY;
+    } else {
+      llm_config.mode = ninacatcoin_ai::LLMMode::ACTIVE;
+    }
+
+    // Parse model path
+    if (vm.count("nina-llm-model")) {
+      llm_config.model_path = command_line::get_arg(vm, daemon_args::arg_nina_llm_model);
+    }
+
+    // Parse thread count
+    if (vm.count("nina-llm-threads")) {
+      llm_config.n_threads = command_line::get_arg(vm, daemon_args::arg_nina_llm_threads);
+    }
+
+    auto& llm = ninacatcoin_ai::NinaLLMEngine::getInstance();
+    llm.initialize(llm_config);
+    MINFO("[Daemon] NINA LLM Engine initialized (mode=" << llm_mode_str << ")");
+  }
 }
 
 t_daemon::~t_daemon()
@@ -207,6 +251,11 @@ t_daemon::~t_daemon()
     MINFO("[NINA-PERSISTENCE] Saving final state before shutdown...");
     nina_save_persistent_state(0, 0, 0, 0.94, 0.85, 88.5);
     MINFO("[NINA-PERSISTENCE] ✓ Final state persisted to LMDB");
+
+    // Shutdown NINA LLM Engine (free model RAM)
+    MINFO("[NINA-LLM] Shutting down LLM engine...");
+    ninacatcoin_ai::NinaLLMEngine::getInstance().shutdown();
+    MINFO("[NINA-LLM] ✓ LLM engine shut down, RAM freed");
     
     // Log shutdown event
     nina_audit_log(0, "DAEMON_SHUTDOWN", "NINA state saved and daemon shutting down gracefully");

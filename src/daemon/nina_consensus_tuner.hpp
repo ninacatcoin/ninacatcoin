@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include "nina_network_health_monitor.hpp"
 #include "nina_parameter_adjustor.hpp"
 #include <string>

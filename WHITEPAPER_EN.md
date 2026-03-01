@@ -2199,3 +2199,30 @@ The Ninacatcoin explorer is built with:
 ---
 
 For developers and users who value true privacy, transparent emission, and decentralized security, **Ninacatcoin** is a clear and compelling choice.
+
+---
+
+## Legal & Compliance Notice
+
+Ninacatcoin (NIA) is a **native Layer 1 blockchain** — it is not a token, smart contract, or derivative of any existing network. There is no contract to audit.
+
+**Fair Launch Declaration:**
+- **No ICO, IEO, or presale** was conducted at any time
+- **No venture capital or private investors** participated in the project
+- **No premine:** The genesis block reward of 10,000 NIA was permanently burned to a provably unspendable address
+- **No dev tax or treasury fund:** There are no automatic allocations to any party
+- **100% of circulating supply** was produced exclusively through proof-of-work mining by the community
+
+**Securities Disclaimer:**
+NIA does not represent equity, shares, profit-sharing, or any form of investment contract. There are no admin keys, governance tokens, or mechanisms that could allow any party to control, freeze, or redistribute user funds. The emission schedule is deterministic and immutable, defined entirely in open-source code.
+
+**Open Source Verification:**
+All source code is publicly available at [https://github.com/ninacatcoin/ninacatcoin](https://github.com/ninacatcoin/ninacatcoin) under a permissive BSD-3-Clause license. Any individual or entity can independently verify every claim made in this document by reviewing the codebase.
+
+**Infrastructure:**
+- Website: [https://ninacatcoin.es](https://ninacatcoin.es)
+- Block Explorer: [https://niachain.ninacatcoin.es](https://niachain.ninacatcoin.es)
+- Mining Pool: [https://niapool.ninacatcoin.es](https://niapool.ninacatcoin.es)
+- GitHub: [https://github.com/ninacatcoin/ninacatcoin](https://github.com/ninacatcoin/ninacatcoin)
+- Discord: [https://discord.gg/U8Mtn2c3ru](https://discord.gg/U8Mtn2c3ru)
+- Contact: ninacatcoin@hotmail.com

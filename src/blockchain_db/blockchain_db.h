@@ -32,6 +32,7 @@
 
 #include <string>
 #include <exception>
+#include <functional>
 #include <boost/program_options.hpp>
 #include "common/command_line.h"
 #include "crypto/hash.h"
@@ -1832,6 +1833,84 @@ public:
    * @brief fix up anything that may be wrong due to past bugs
    */
   virtual void fixup();
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // NINA On-Chain Persistence (v18 hard fork — height >= 20000)
+  //
+  // Before v18: NINA uses a separate LMDB at ~/.ninacatcoin/nina_state/
+  // After  v18: NINA writes directly into the blockchain's data.mdb
+  //
+  // These methods provide a database-agnostic interface for NINA to store:
+  //   - State (statistics, metadata, learning metrics)  → nina_state table
+  //   - Block records (per-block analysis)              → nina_blocks table
+  //   - Checkpoint data (validation hashes)             → nina_checkpoints table
+  //   - Decision records (AI audit trail)               → nina_decisions table
+  //   - Audit log (timestamped event log)               → nina_audit table
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  /**
+   * @brief Store a key-value pair in the nina_state table
+   * @param key string key (e.g. "current", "learning_metrics")
+   * @param value serialized data
+   */
+  virtual void nina_state_put(const std::string& key, const std::string& value) = 0;
+
+  /**
+   * @brief Retrieve a value from the nina_state table
+   * @param key string key
+   * @param value [out] the value if found
+   * @return true if key exists
+   */
+  virtual bool nina_state_get(const std::string& key, std::string& value) const = 0;
+
+  /**
+   * @brief Store a NINA block record (per-block analysis data)
+   * @param height the block height (key)
+   * @param data serialized PersistedBlockRecord
+   */
+  virtual void nina_block_put(uint64_t height, const std::string& data) = 0;
+
+  /**
+   * @brief Retrieve a NINA block record
+   * @param height the block height
+   * @param data [out] the serialized record
+   * @return true if record exists
+   */
+  virtual bool nina_block_get(uint64_t height, std::string& data) const = 0;
+
+  /**
+   * @brief Iterate all NINA block records via callback
+   * @param f callback receiving (height, serialized_data); return false to stop
+   * @return true if all records processed (or empty)
+   */
+  virtual bool nina_block_for_all(std::function<bool(uint64_t height, const std::string& data)> f) const = 0;
+
+  /**
+   * @brief Store a checkpoint hash record
+   * @param height the checkpoint height (key)
+   * @param data serialized checkpoint info
+   */
+  virtual void nina_checkpoint_put(uint64_t height, const std::string& data) = 0;
+
+  /**
+   * @brief Store an AI decision record
+   * @param decision_id unique identifier (key)
+   * @param data serialized DecisionRecord
+   */
+  virtual void nina_decision_put(const std::string& decision_id, const std::string& data) = 0;
+
+  /**
+   * @brief Append to the NINA audit trail
+   * @param timestamp_key nanosecond-precision key for ordering
+   * @param data "height|event|details" formatted string
+   */
+  virtual void nina_audit_put(uint64_t timestamp_key, const std::string& data) = 0;
+
+  /**
+   * @brief Get the count of records in the nina_blocks table
+   * @return number of NINA block records stored
+   */
+  virtual uint64_t nina_block_count() const = 0;
 
   /**
    * @brief set whether or not to automatically remove logs

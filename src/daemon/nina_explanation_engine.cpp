@@ -4,6 +4,7 @@
  */
 
 #include "nina_explanation_engine.hpp"
+#include "nina_llm_bridge.hpp"
 #include "misc_log_ex.h"
 #include <sstream>
 #include <iomanip>
@@ -36,6 +37,25 @@ DecisionExplanation NInaExplanationEngine::explain_block_validation(
     exp.constraints.push_back("NO_CENSORSHIP: Cannot arbitrarily reject");
     exp.confidence_score = 1.0 - (anomaly_score * 0.1);
     exp.escalation_level = anomaly_score > 0.8 ? "HUMAN_REQUIRED" : "AUTO";
+
+    // LLM: Enrich reasoning with natural language explanation
+    try {
+        auto& bridge = NinaLLMBridge::getInstance();
+        if (bridge.is_available()) {
+            auto llm_exp = bridge.explain_decision(
+                "BLOCK_VALIDATION",
+                is_valid ? "ACCEPTED" : "REJECTED",
+                validation_rules,
+                {"CONSENSUS_BINDING", "NO_CENSORSHIP"},
+                exp.confidence_score);
+            if (llm_exp.valid) {
+                exp.reasoning += "\n[LLM] " + llm_exp.reasoning;
+                if (!llm_exp.risk_assessment.empty()) {
+                    exp.evidence.push_back("[LLM Risk] " + llm_exp.risk_assessment);
+                }
+            }
+        }
+    } catch (...) {}
 
     MINFO("[EXPLANATION] Block " << block_height << " validation: " 
           << (is_valid ? "VALID" : "INVALID") 
@@ -111,6 +131,22 @@ DecisionExplanation NInaExplanationEngine::explain_transaction_filtering(
 
     exp.confidence_score = 1.0 - (suspicion_score * 0.2);
     exp.escalation_level = suspicion_score > 0.7 ? "WARN" : "AUTO";
+
+    // LLM: Enrich transaction filtering explanation
+    try {
+        auto& bridge = NinaLLMBridge::getInstance();
+        if (bridge.is_available() && suspicion_score > 0.3) {
+            auto llm_exp = bridge.explain_decision(
+                "TRANSACTION_FILTERING",
+                should_relay ? "RELAY" : "HOLD",
+                anomaly_flags,
+                {"NO_CENSORSHIP", "USER_AUTONOMY"},
+                exp.confidence_score);
+            if (llm_exp.valid) {
+                exp.reasoning += "\n[LLM] " + llm_exp.reasoning;
+            }
+        }
+    } catch (...) {}
 
     return exp;
 }

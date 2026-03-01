@@ -47,6 +47,7 @@ set(daemon_sources
   nina_human_collaboration.cpp
   nina_complete_evolution.cpp
   nina_persistence_engine.cpp
+  nina_llm_engine.cpp
 )
 
 set(daemon_headers)
@@ -59,6 +60,9 @@ ninacatcoin_add_executable(daemon
   ${daemon_sources}
   ${daemon_headers}
   ${daemon_private_headers})
+target_include_directories(daemon
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/external/llama.cpp/include)
 target_link_libraries(daemon
   PRIVATE
     rpc
@@ -72,6 +76,10 @@ target_link_libraries(daemon
     serialization
     daemon_rpc_server
     ninacatcoin_ai
+    llama
+    ggml
+    CURL::libcurl
+    ${OPENSSL_LIBRARIES}
     ${EPEE_READLINE}
     version
     ${Boost_CHRONO_LIBRARY}

@@ -1090,6 +1090,17 @@ namespace cryptonote
     uint32_t get_compiled_block_hash_groups() const { return static_cast<uint32_t>(m_blocks_hash_of_hashes.size()); }
     static std::string get_checkpoints_dat_url();
     bool load_checkpoints_dat_from_file(const std::string &file_path);
+    
+    /**
+     * @brief Run NINA P2P checkpoint generation cycle
+     * Generates checkpoints.json + checkpoints.dat locally from the chain,
+     * computes integrity hashes, and updates checkpoint P2P state.
+     * Called periodically by the daemon timer (every NINA_CHECKPOINT_CYCLE_SECONDS).
+     * @param data_dir directory for checkpoint files
+     * @return true if cycle completed successfully
+     */
+    bool run_nina_checkpoint_cycle(const std::string& data_dir);
+    
     uint64_t prevalidate_block_hashes(uint64_t height, const std::vector<crypto::hash> &hashes, const std::vector<uint64_t> &weights);
     uint32_t get_blockchain_pruning_seed() const { return m_db->get_blockchain_pruning_seed(); }
     bool prune_blockchain(uint32_t pruning_seed = 0);

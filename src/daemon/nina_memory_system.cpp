@@ -3,6 +3,7 @@
 
 #include "nina_memory_system.hpp"
 #include "nina_persistent_memory.hpp"
+#include "nina_llm_bridge.hpp"
 #include <iostream>
 #include <sstream>
 #include <algorithm>
@@ -116,6 +117,39 @@ std::string NINAMemorySystem::generateSuggestionReport() {
     ss << "Patterns tracked: " << attack_patterns.size() << "\n";
     ss << "Peers tracked: " << peer_behaviors.size() << "\n";
     ss << "==================================\n\n";
+    
+    // LLM: Enhance memory report with pattern correlation
+    try {
+        auto& bridge = NinaLLMBridge::getInstance();
+        if (bridge.is_available() && !attack_patterns.empty()) {
+            std::stringstream patterns_str;
+            for (const auto& p : attack_patterns) {
+                patterns_str << p.pattern_name << "(count=" << p.occurrence_count
+                             << ",conf=" << p.confidence
+                             << ",sev=" << p.severity_average << "); ";
+            }
+            std::stringstream peers_str;
+            int suspicious_peers = 0;
+            for (const auto& pr : peer_behaviors) {
+                if (pr.second.reputation_score < 0.3) suspicious_peers++;
+            }
+            peers_str << "total=" << peer_behaviors.size()
+                      << ",suspicious=" << suspicious_peers;
+            
+            auto correlation = bridge.correlate_attack_patterns(
+                patterns_str.str(), peers_str.str());
+            if (!correlation.analysis.empty()) {
+                ss << "[NINA LLM Pattern Correlation]\n";
+                ss << "  Score: " << correlation.correlation_score << "\n";
+                ss << "  Analysis: " << correlation.analysis << "\n";
+                if (!correlation.recommended_action.empty()) {
+                    ss << "  Action: " << correlation.recommended_action << "\n";
+                }
+                ss << "\n";
+            }
+        }
+    } catch (...) {}
+    
     return ss.str();
 }
 
@@ -133,6 +167,30 @@ void NINAMemorySystem::updatePatternConfidence() {
 }
 
 std::string NINAMemorySystem::analyzePatterns() const {
+    // LLM: Use LLM to correlate attack patterns with peer behavior
+    try {
+        auto& bridge = NinaLLMBridge::getInstance();
+        if (bridge.is_available() && !attack_patterns.empty()) {
+            std::stringstream patterns_str;
+            for (const auto& p : attack_patterns) {
+                patterns_str << p.pattern_name << "(count=" << p.occurrence_count
+                             << ",confidence=" << p.confidence
+                             << ",severity=" << p.severity_average << "); ";
+            }
+            std::stringstream peers_str;
+            for (const auto& pr : peer_behaviors) {
+                if (pr.second.reputation_score < 0.4) {
+                    peers_str << pr.first << "(rep=" << pr.second.reputation_score
+                              << ",suspicious=" << pr.second.suspicious_count << "); ";
+                }
+            }
+            auto result = bridge.correlate_attack_patterns(
+                patterns_str.str(), peers_str.str());
+            if (!result.analysis.empty()) {
+                return "[LLM] " + result.analysis + " | Action: " + result.recommended_action;
+            }
+        }
+    } catch (...) {}
     return "";
 }
 
@@ -160,10 +218,12 @@ bool NINAMemorySystem::persistToLMDB(uint64_t current_height) {
         }
         std::cout << "[NINA-Memory] Pairs de peers serializados ✓" << std::endl;
         
-        // Llamar a la persistencia
+        // Llamar a la persistencia con datos ya serializados
         daemonize::persist_memory_system_data(
-            (void*)&attack_patterns,
-            (void*)&peer_behaviors
+            patterns_stream.str(),
+            peers_stream.str(),
+            attack_patterns.size(),
+            peer_behaviors.size()
         );
         
         // Auditar evento
@@ -191,16 +251,63 @@ bool NINAMemorySystem::persistToLMDB(uint64_t current_height) {
 bool NINAMemorySystem::loadFromLMDB() {
     try {
         std::cout << "[NINA-Memory] === CARGA DE DATOS LMDB INICIADA ===" << std::endl;
-        std::cout << "[NINA-Memory] DATA.MDB: ~/.ninacatcoin/lmdb/data.mdb" << std::endl;
-        
-        // En una implementación real, aquí se recuperarían los datos de LMDB
-        // mdb_get(txn, dbi, "nina:memory:patterns", &data);
-        // mdb_get(txn, dbi, "nina:memory:peers", &data);
-        
-        std::cout << "[NINA-Memory] ✓ Patrones de ataque restaurados" << std::endl;
-        std::cout << "[NINA-Memory] ✓ Reputación de peers restaurada" << std::endl;
+
+        std::string patterns_data, peers_data;
+        if (!daemonize::load_memory_system_data(patterns_data, peers_data)) {
+            std::cout << "[NINA-Memory] No previous memory data found (first run)" << std::endl;
+            return false;
+        }
+
+        // Parse attack patterns
+        if (!patterns_data.empty()) {
+            std::istringstream pstream(patterns_data);
+            std::string line;
+            size_t loaded = 0;
+            while (std::getline(pstream, line)) {
+                if (line.empty()) continue;
+                // Format: name|count|confidence|severity|first_seen|last_seen
+                std::istringstream ls(line);
+                AttackPattern pat;
+                std::string token;
+                if (std::getline(ls, pat.pattern_name, '|') &&
+                    std::getline(ls, token, '|')) {
+                    pat.occurrence_count = std::stoull(token);
+                    if (std::getline(ls, token, '|')) pat.confidence = std::stod(token);
+                    if (std::getline(ls, token, '|')) pat.severity_average = std::stod(token);
+                    if (std::getline(ls, token, '|')) pat.first_seen = (time_t)std::stoll(token);
+                    if (std::getline(ls, token, '|')) pat.last_seen = (time_t)std::stoll(token);
+                    attack_patterns.push_back(pat);
+                    loaded++;
+                }
+            }
+            std::cout << "[NINA-Memory] ✓ " << loaded << " patrones de ataque restaurados" << std::endl;
+        }
+
+        // Parse peer behaviors
+        if (!peers_data.empty()) {
+            std::istringstream pstream(peers_data);
+            std::string line;
+            size_t loaded = 0;
+            while (std::getline(pstream, line)) {
+                if (line.empty()) continue;
+                // Format: ip|interactions|suspicious|reputation|last_update
+                std::istringstream ls(line);
+                PeerBehavior pb;
+                std::string token;
+                if (std::getline(ls, pb.peer_ip, '|') &&
+                    std::getline(ls, token, '|')) {
+                    pb.total_interactions = std::stoull(token);
+                    if (std::getline(ls, token, '|')) pb.suspicious_count = std::stoull(token);
+                    if (std::getline(ls, token, '|')) pb.reputation_score = std::stod(token);
+                    if (std::getline(ls, token, '|')) pb.last_update = (time_t)std::stoll(token);
+                    peer_behaviors[pb.peer_ip] = pb;
+                    loaded++;
+                }
+            }
+            std::cout << "[NINA-Memory] ✓ " << loaded << " reputaciones de peers restauradas" << std::endl;
+        }
+
         std::cout << "[NINA-Memory] === CARGA COMPLETADA ===" << std::endl;
-        
         return true;
     } catch (const std::exception& e) {
         std::cout << "[NINA-Memory] Advertencia: No se pudo cargar estado anterior: " << e.what() << std::endl;

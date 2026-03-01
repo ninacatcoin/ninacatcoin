@@ -51,6 +51,9 @@
 #include "ai/ai_integrity_verifier.hpp"
 #include "ai/ai_auto_updater.hpp"
 #include "daemon/nina_persistent_memory.hpp"
+#include "daemon/nina_llm_engine.hpp"
+#include "daemon/nina_learning_module.hpp"
+#include "daemon/nina_network_health_monitor.hpp"
 #include "net/network_throttle-detail.hpp"
 #include "common/pruning.h"
 #include "common/util.h"
@@ -496,6 +499,14 @@ namespace cryptonote
       context.set_state_normal();
       if(is_inital  && hshd.current_height >= target && target == m_core.get_current_blockchain_height())
         on_connection_synchronized();
+
+      // NINA Continuous Sync: request state from new peer on handshake
+      if (is_inital && m_synchronized) {
+        try {
+          request_nina_state_from_peer(context);
+        } catch (...) {}
+      }
+
       return true;
     }
 
@@ -1266,6 +1277,162 @@ namespace cryptonote
     });
 
     MINFO("[NINA-STATE-SYNC] Relayed state to " << relayed << " peers");
+    return true;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA Continuous Sync: Periodic broadcast of incremental state
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  bool t_cryptonote_protocol_handler<t_core>::broadcast_nina_state_periodic()
+  {
+    if (!m_synchronized || m_stopping)
+      return true;
+
+    try {
+      auto summary = daemonize::get_nina_state_summary();
+      // Only broadcast if we have new data since last broadcast
+      if (summary.last_height <= m_last_nina_broadcast_height &&
+          summary.block_records <= m_last_nina_broadcast_records) {
+        return true;
+      }
+
+      // Use incremental export: only blocks since our last broadcast height
+      std::string state_data = daemonize::export_nina_state_incremental(m_last_nina_broadcast_height);
+      if (state_data.empty())
+        return true;
+
+      // Build the relay message
+      NOTIFY_NINA_STATE_SYNC::request msg{};
+      msg.sender_height = m_core.get_current_blockchain_height();
+      msg.nina_last_height = summary.last_height;
+      msg.nina_block_records = summary.block_records;
+      msg.nina_session_count = summary.session_count;
+      msg.timestamp = static_cast<uint64_t>(std::time(nullptr));
+      msg.state_data = std::move(state_data);
+      msg.state_hash = "";  // Optional integrity check
+      msg.hops = 1;         // Direct broadcast, don't relay further
+
+      size_t sent = 0;
+      m_p2p->for_each_connection([&](cryptonote_connection_context& context, nodetool::peerid_type peer_id, uint32_t support_flags) -> bool {
+        if (context.m_state != cryptonote_connection_context::state_normal)
+          return true;
+        post_notify<NOTIFY_NINA_STATE_SYNC>(msg, context);
+        sent++;
+        return true;
+      });
+
+      m_last_nina_broadcast_height = summary.last_height;
+      m_last_nina_broadcast_records = summary.block_records;
+      MINFO("[NINA-PERIODIC-SYNC] Broadcast incremental state to " << sent << " peers"
+            << " (height=" << summary.last_height << ", records=" << summary.block_records << ")");
+    } catch (const std::exception& e) {
+      MWARNING("[NINA-PERIODIC-SYNC] Error: " << e.what());
+    }
+    return true;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA Continuous Sync: Handle incoming state request (pull)
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  int t_cryptonote_protocol_handler<t_core>::handle_request_nina_state(int command, NOTIFY_REQUEST_NINA_STATE::request& arg, cryptonote_connection_context& context)
+  {
+    MINFO("[NINA-PULL] Peer requests NINA state (their height=" << arg.requester_nina_height
+          << ", records=" << arg.requester_block_records << ")");
+
+    try {
+      auto summary = daemonize::get_nina_state_summary();
+
+      // Only respond if we have more data than the requester
+      if (summary.last_height <= arg.requester_nina_height &&
+          summary.block_records <= arg.requester_block_records) {
+        MINFO("[NINA-PULL] We don't have more data than requester, skipping");
+        return 1;
+      }
+
+      // Send incremental state from their height
+      std::string state_data = daemonize::export_nina_state_incremental(arg.requester_nina_height);
+      if (state_data.empty())
+        return 1;
+
+      NOTIFY_NINA_STATE_SYNC::request reply{};
+      reply.sender_height = m_core.get_current_blockchain_height();
+      reply.nina_last_height = summary.last_height;
+      reply.nina_block_records = summary.block_records;
+      reply.nina_session_count = summary.session_count;
+      reply.timestamp = static_cast<uint64_t>(std::time(nullptr));
+      reply.state_data = std::move(state_data);
+      reply.state_hash = "";
+      reply.hops = 0;  // Direct response, no further relay
+
+      post_notify<NOTIFY_NINA_STATE_SYNC>(reply, context);
+      MINFO("[NINA-PULL] Sent state response to peer (our height=" << summary.last_height << ")");
+    } catch (const std::exception& e) {
+      MWARNING("[NINA-PULL] Error handling request: " << e.what());
+    }
+    return 1;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA Continuous Sync: Request state from a specific peer
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  bool t_cryptonote_protocol_handler<t_core>::request_nina_state_from_peer(cryptonote_connection_context& context)
+  {
+    try {
+      auto summary = daemonize::get_nina_state_summary();
+
+      NOTIFY_REQUEST_NINA_STATE::request req{};
+      req.requester_nina_height = summary.last_height;
+      req.requester_block_records = summary.block_records;
+      req.timestamp = static_cast<uint64_t>(std::time(nullptr));
+
+      post_notify<NOTIFY_REQUEST_NINA_STATE>(req, context);
+      MINFO("[NINA-PULL] Requested NINA state from peer (our height=" << summary.last_height
+            << ", records=" << summary.block_records << ")");
+      return true;
+    } catch (const std::exception& e) {
+      MWARNING("[NINA-PULL] Error requesting state: " << e.what());
+      return false;
+    }
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  bool t_cryptonote_protocol_handler<t_core>::nina_llm_periodic_summary()
+  {
+    try {
+      auto& llm = ninacatcoin_ai::NinaLLMEngine::getInstance();
+      if (!llm.is_enabled()) return true;
+
+      // Gather metrics from NINA modules
+      auto& learning = ninacatcoin_ai::NINALearningModule::getInstance();
+      auto& health_mon = ninacatcoin_ai::NINANetworkHealthMonitor::getInstance();
+      auto metrics = health_mon.getCurrentMetrics();
+
+      uint32_t peer_count = 0;
+      m_p2p->for_each_connection([&](cryptonote_connection_context& ctx, nodetool::peerid_type, uint32_t) -> bool {
+        peer_count++;
+        return true;
+      });
+
+      auto result = llm.generate_periodic_summary(
+        15,  // blocks processed (approx for 30min at 120s target)
+        120.0,  // avg solve time
+        learning.getAnomalyCount(),
+        0,  // sybil alerts
+        learning.getNetworkHealthConfidence(),
+        static_cast<uint32_t>(learning.getMetricCount()),
+        peer_count
+      );
+
+      if (result.success) {
+        MINFO("[NINA-LLM-SUMMARY] " << result.analysis);
+        if (result.threat_level > 0.5) {
+          MWARNING("[NINA-LLM-SUMMARY] Elevated threat level: " << result.threat_level
+                   << " | Action: " << result.recommended_action);
+        }
+      }
+    } catch (const std::exception& e) {
+      MWARNING("[NINA-LLM-SUMMARY] Error: " << e.what());
+    }
     return true;
   }
   //------------------------------------------------------------------------------------------------------------------------
@@ -2066,6 +2233,8 @@ skip:
     m_idle_peer_kicker.do_call(boost::bind(&t_cryptonote_protocol_handler<t_core>::kick_idle_peers, this));
     m_standby_checker.do_call(boost::bind(&t_cryptonote_protocol_handler<t_core>::check_standby_peers, this));
     m_sync_search_checker.do_call(boost::bind(&t_cryptonote_protocol_handler<t_core>::update_sync_search, this));
+    m_nina_state_checker.do_call(boost::bind(&t_cryptonote_protocol_handler<t_core>::broadcast_nina_state_periodic, this));
+    m_nina_llm_summary_checker.do_call(boost::bind(&t_cryptonote_protocol_handler<t_core>::nina_llm_periodic_summary, this));
     return m_core.on_idle();
   }
   //------------------------------------------------------------------------------------------------------------------------

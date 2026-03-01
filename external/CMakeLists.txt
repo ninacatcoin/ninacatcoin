@@ -67,3 +67,17 @@ add_subdirectory(db_drivers)
 add_subdirectory(easylogging++)
 add_subdirectory(qrcodegen)
 add_subdirectory(randomx EXCLUDE_FROM_ALL)
+
+# ============================================================================
+# llama.cpp — LLM inference engine for NINA AI (LLaMA 3.2 3B)
+# Build only the core library, no examples/tests/server
+# ============================================================================
+set(LLAMA_BUILD_TESTS    OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_SERVER   OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_COMMON   OFF CACHE BOOL "" FORCE)
+set(BUILD_SHARED_LIBS    OFF CACHE BOOL "" FORCE)
+set(GGML_CUDA            OFF CACHE BOOL "" FORCE)  # CPU only by default
+set(GGML_METAL           OFF CACHE BOOL "" FORCE)
+set(GGML_VULKAN          OFF CACHE BOOL "" FORCE)
+add_subdirectory(llama.cpp EXCLUDE_FROM_ALL)

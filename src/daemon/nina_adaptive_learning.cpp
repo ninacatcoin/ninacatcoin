@@ -8,6 +8,7 @@
  */
 
 #include "nina_adaptive_learning.hpp"
+#include "nina_llm_bridge.hpp"
 #include "misc_log_ex.h"
 #include <cmath>
 #include <iomanip>
@@ -315,6 +316,39 @@ std::vector<LearningPattern> NInaAdaptiveLearning::recognize_patterns(
           << " (" << patterns[0].threat_level << ", conf=" 
           << std::fixed << std::setprecision(2) << patterns[0].confidence << ")");
     
+    // LLM: Enhance pattern recognition with deeper analysis
+    // NOTE: We unlock before calling LLM (LLM can be slow)
+    // The patterns vector is a local copy so it's safe
+    try {
+        auto& bridge = ninacatcoin_ai::NinaLLMBridge::getInstance();
+        if (bridge.is_available() && !patterns.empty() &&
+            patterns[0].threat_level != "SAFE") {
+            // Build summary for LLM
+            std::string patterns_summary;
+            for (const auto& p : patterns) {
+                patterns_summary += p.pattern_type + "(" + p.threat_level
+                    + ",conf=" + std::to_string(p.confidence) + "); ";
+            }
+            std::string predictions_summary = "attack_db=" +
+                std::to_string(g_attack_features.size());
+            
+            auto stats = get_learning_stats();
+            auto insight = bridge.generate_insights(
+                patterns_summary, predictions_summary,
+                static_cast<uint32_t>(stats.patterns_learned),
+                stats.average_prediction_accuracy,
+                static_cast<uint32_t>(stats.learning_sessions));
+            if (insight.valid && !insight.insight.empty()) {
+                // Add LLM insight as a new pattern entry
+                LearningPattern llm_pattern;
+                llm_pattern.pattern_type = "LLM_INSIGHT: " + insight.insight;
+                llm_pattern.confidence = 0.8;
+                llm_pattern.threat_level = insight.threat_outlook;
+                patterns.push_back(llm_pattern);
+            }
+        }
+    } catch (...) {}
+    
     return patterns;
 }
 
@@ -432,6 +466,35 @@ std::vector<std::string> NInaAdaptiveLearning::get_insights()
     }
     
     MINFO("[INSIGHTS] Generated " << insights.size() << " insights from real data");
+    
+    // LLM: Enhance insights with AI-powered analysis
+    try {
+        auto& bridge = ninacatcoin_ai::NinaLLMBridge::getInstance();
+        if (bridge.is_available() && insights.size() >= 2) {
+            std::string patterns_summary;
+            for (const auto& i : insights) patterns_summary += i + "\n";
+            
+            std::string predictions_summary = "total_predictions=" +
+                std::to_string(g_total_predictions) +
+                ",accuracy_samples=" + std::to_string(g_accuracy_samples);
+            
+            auto stats = get_learning_stats();
+            auto llm_insight = bridge.generate_insights(
+                patterns_summary, predictions_summary,
+                static_cast<uint32_t>(stats.patterns_learned),
+                stats.average_prediction_accuracy,
+                static_cast<uint32_t>(stats.learning_sessions));
+            if (llm_insight.valid && !llm_insight.insight.empty()) {
+                insights.push_back("[LLM] " + llm_insight.insight);
+                if (!llm_insight.trend.empty()) {
+                    insights.push_back("[LLM Trend] " + llm_insight.trend);
+                }
+                if (!llm_insight.action.empty()) {
+                    insights.push_back("[LLM Action] " + llm_insight.action);
+                }
+            }
+        }
+    } catch (...) {}
     
     return insights;
 }

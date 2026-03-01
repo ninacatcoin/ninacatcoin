@@ -5,6 +5,7 @@
 
 #include "nina_governance_engine.hpp"
 #include "nina_constitution.hpp"
+#include "nina_llm_bridge.hpp"
 #include "misc_log_ex.h"
 #include <sstream>
 #include <iomanip>
@@ -52,6 +53,23 @@ GovernanceProposal NInaNetworkGovernance::suggest_difficulty_adjustment(
     MINFO("[GOVERNANCE] Current: " << current_difficulty 
           << " -> Proposed: " << proposed_difficulty);
 
+    // LLM: Enrich justification with deeper analysis
+    try {
+        auto& bridge = NinaLLMBridge::getInstance();
+        if (bridge.is_available()) {
+            std::string network_cond = "blocktime_ratio=" + std::to_string(ratio)
+                + ",actual=" + std::to_string(actual_blocktime)
+                + "s,target=" + std::to_string(target_blocktime) + "s";
+            auto just = bridge.justify_proposal(
+                "DIFFICULTY_ADJUSTMENT",
+                prop.current_value, prop.proposed_value,
+                network_cond, prop.affected_systems);
+            if (just.valid) {
+                prop.justification += "\n[LLM] " + just.justification;
+            }
+        }
+    } catch (...) {}
+
     return prop;
 }
 
@@ -84,6 +102,22 @@ GovernanceProposal NInaNetworkGovernance::suggest_fee_optimization(
     prop.status = "PROPOSED";
 
     MINFO("[GOVERNANCE] Fee optimization suggested: " << suggested_fee);
+
+    // LLM: Enrich fee optimization justification
+    try {
+        auto& bridge = NinaLLMBridge::getInstance();
+        if (bridge.is_available()) {
+            std::string network_cond = "congestion=" + std::to_string(congestion_ratio * 100.0)
+                + "%,pending=" + std::to_string(pending_transactions);
+            auto just = bridge.justify_proposal(
+                "FEE_OPTIMIZATION",
+                prop.current_value, prop.proposed_value,
+                network_cond, prop.affected_systems);
+            if (just.valid) {
+                prop.justification += "\n[LLM] " + just.justification;
+            }
+        }
+    } catch (...) {}
 
     return prop;
 }

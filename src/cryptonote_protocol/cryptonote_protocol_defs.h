@@ -470,10 +470,10 @@ namespace cryptonote
   };
 
   /************************************************************************/
-  /* NINA State Sync — share NINA's data.mdb state between nodes         */
-  /* Works like blockchain sync: nodes exchange their NINA learning       */
-  /* state so new nodes can bootstrap NINA intelligence immediately      */
-  /* instead of learning from scratch over 1000+ blocks.                 */
+  /* NINA State Sync — share NINA state + checkpoint hashes via P2P      */
+  /* Lightweight ~300-400 byte message exchanged every checkpoint cycle   */
+  /* Nodes compare locally-generated checkpoint hashes for consensus     */
+  /* Full file transfer only needed for initial sync (see CHECKPOINT_DATA)*/
   /************************************************************************/
   struct NOTIFY_NINA_STATE_SYNC
   {
@@ -481,14 +481,31 @@ namespace cryptonote
 
     struct request_t
     {
-      uint64_t    sender_height;       // Sender's blockchain height
-      uint64_t    nina_last_height;    // Last height NINA processed
-      uint64_t    nina_block_records;  // Number of block records in NINA DB
-      uint64_t    nina_session_count;  // Number of sessions NINA has run
-      uint64_t    timestamp;           // When this was generated
-      std::string state_data;          // Serialized NINA state (export_nina_state_for_p2p)
-      std::string state_hash;          // SHA-256 of state_data for integrity
-      uint8_t     hops;                // TTL: decremented each relay
+      // === Node identity ===
+      uint64_t    sender_height;           // Sender's blockchain height
+      uint64_t    nina_last_height;        // Last height NINA processed
+      uint64_t    nina_block_records;      // Number of block records in NINA DB
+      uint64_t    nina_session_count;      // Number of sessions NINA has run
+      uint64_t    timestamp;               // When this was generated
+
+      // === Checkpoint consensus fields (P2P distribution) ===
+      uint64_t    checkpoint_height;       // Highest block covered by checkpoints
+      std::string json_integrity_hash;     // SHA-256 hex of locally generated checkpoints.json
+      std::string dat_integrity_hash;      // SHA-256 hex of locally generated checkpoints.dat
+      uint32_t    dat_num_groups;          // Number of 512-block groups in .dat
+      uint32_t    json_checkpoint_count;   // Number of {height,hash} entries in .json
+      uint64_t    generation_timestamp;    // When checkpoints were last generated
+      uint64_t    generation_cycle;        // Hourly cycle counter (epoch_id)
+
+      // === NINA verification digest ===
+      std::string nina_model_hash;         // SHA-256 of NINA's GGUF model file
+      double      chain_health_score;      // NINA's assessment (0.0-1.0)
+      uint32_t    peer_count;              // How many peers sender has
+
+      // === NINA learning state (optional, for new node sync) ===
+      std::string state_data;              // Serialized NINA state (export_nina_state_for_p2p)
+      std::string state_hash;              // SHA-256 of state_data for integrity
+      uint8_t     hops;                    // TTL: decremented each relay
 
       BEGIN_KV_SERIALIZE_MAP()
         KV_SERIALIZE(sender_height)
@@ -496,6 +513,16 @@ namespace cryptonote
         KV_SERIALIZE(nina_block_records)
         KV_SERIALIZE(nina_session_count)
         KV_SERIALIZE(timestamp)
+        KV_SERIALIZE(checkpoint_height)
+        KV_SERIALIZE(json_integrity_hash)
+        KV_SERIALIZE(dat_integrity_hash)
+        KV_SERIALIZE(dat_num_groups)
+        KV_SERIALIZE(json_checkpoint_count)
+        KV_SERIALIZE(generation_timestamp)
+        KV_SERIALIZE(generation_cycle)
+        KV_SERIALIZE(nina_model_hash)
+        KV_SERIALIZE(chain_health_score)
+        KV_SERIALIZE(peer_count)
         KV_SERIALIZE(state_data)
         KV_SERIALIZE(state_hash)
         KV_SERIALIZE(hops)
@@ -504,4 +531,84 @@ namespace cryptonote
     typedef epee::misc_utils::struct_init<request_t> request;
   };
     
+  /************************************************************************/
+  /*  NOTIFY_REQUEST_NINA_STATE                                           */
+  /*  Pull-based: a node requests NINA state from a peer.                 */
+  /*  Used during handshake or when a node detects it's behind.           */
+  /************************************************************************/
+  struct NOTIFY_REQUEST_NINA_STATE
+  {
+    const static int ID = BC_COMMANDS_POOL_BASE + 14;
+
+    struct request_t
+    {
+      uint64_t    requester_nina_height;   // Requester's last NINA height
+      uint64_t    requester_block_records; // How many block records requester has
+      uint64_t    timestamp;               // When this request was made
+      bool        need_checkpoint_data;    // True if requesting full checkpoint files
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(requester_nina_height)
+        KV_SERIALIZE(requester_block_records)
+        KV_SERIALIZE(timestamp)
+        KV_SERIALIZE(need_checkpoint_data)
+      END_KV_SERIALIZE_MAP()
+    };
+    typedef epee::misc_utils::struct_init<request_t> request;
+  };
+
+  /************************************************************************/
+  /* NINA Checkpoint Data Transfer — full checkpoint files via P2P        */
+  /* Used ONLY during initial sync when a new node has no checkpoints     */
+  /* or when hash mismatch detected and peer needs the actual files       */
+  /* Normal operation uses hash-only exchange via NINA_STATE_SYNC         */
+  /************************************************************************/
+  struct NOTIFY_NINA_CHECKPOINT_DATA
+  {
+    const static int ID = BC_COMMANDS_POOL_BASE + 15;
+
+    struct request_t
+    {
+      // === Metadata ===
+      uint64_t    checkpoint_height;       // Highest block covered
+      uint64_t    generation_timestamp;    // When generated
+      uint64_t    generation_cycle;        // Epoch/cycle counter
+      std::string network;                 // "mainnet", "testnet", "stagenet"
+
+      // === checkpoints.json (serialized) ===
+      std::string json_data;               // Full JSON content
+      std::string json_integrity_hash;     // SHA-256 of json_data
+      uint32_t    json_checkpoint_count;   // Number of entries
+
+      // === checkpoints.dat (base64-encoded binary) ===
+      std::string dat_data_b64;            // Base64-encoded .dat binary
+      std::string dat_integrity_hash;      // SHA-256 of decoded binary
+      uint32_t    dat_num_groups;          // Number of 512-block groups
+      uint32_t    dat_data_size;           // Original binary size in bytes
+
+      // === Sender identity ===
+      uint64_t    sender_height;           // Sender's blockchain tip
+      std::string nina_model_hash;         // Sender's NINA model hash
+      uint8_t     hops;                    // TTL (max 2 — direct peers only)
+
+      BEGIN_KV_SERIALIZE_MAP()
+        KV_SERIALIZE(checkpoint_height)
+        KV_SERIALIZE(generation_timestamp)
+        KV_SERIALIZE(generation_cycle)
+        KV_SERIALIZE(network)
+        KV_SERIALIZE(json_data)
+        KV_SERIALIZE(json_integrity_hash)
+        KV_SERIALIZE(json_checkpoint_count)
+        KV_SERIALIZE(dat_data_b64)
+        KV_SERIALIZE(dat_integrity_hash)
+        KV_SERIALIZE(dat_num_groups)
+        KV_SERIALIZE(dat_data_size)
+        KV_SERIALIZE(sender_height)
+        KV_SERIALIZE(nina_model_hash)
+        KV_SERIALIZE(hops)
+      END_KV_SERIALIZE_MAP()
+    };
+    typedef epee::misc_utils::struct_init<request_t> request;
+  };
+
 }

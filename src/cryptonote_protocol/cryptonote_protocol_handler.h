@@ -99,6 +99,7 @@ namespace cryptonote
       HANDLE_NOTIFY_T2(NOTIFY_NINA_INTELLIGENCE, &cryptonote_protocol_handler::handle_notify_nina_intelligence)
       HANDLE_NOTIFY_T2(NOTIFY_NINA_MODEL_SHARE, &cryptonote_protocol_handler::handle_notify_nina_model_share)
       HANDLE_NOTIFY_T2(NOTIFY_NINA_STATE_SYNC, &cryptonote_protocol_handler::handle_notify_nina_state_sync)
+      HANDLE_NOTIFY_T2(NOTIFY_REQUEST_NINA_STATE, &cryptonote_protocol_handler::handle_request_nina_state)
     END_INVOKE_MAP2()
 
     bool on_idle();
@@ -150,6 +151,7 @@ namespace cryptonote
     int handle_notify_nina_intelligence(int command, NOTIFY_NINA_INTELLIGENCE::request& arg, cryptonote_connection_context& context);
     int handle_notify_nina_model_share(int command, NOTIFY_NINA_MODEL_SHARE::request& arg, cryptonote_connection_context& context);
     int handle_notify_nina_state_sync(int command, NOTIFY_NINA_STATE_SYNC::request& arg, cryptonote_connection_context& context);
+    int handle_request_nina_state(int command, NOTIFY_REQUEST_NINA_STATE::request& arg, cryptonote_connection_context& context);
 		
     //----------------- i_bc_protocol_layout ---------------------------------------
     virtual bool relay_block(NOTIFY_NEW_FLUFFY_BLOCK::request& arg, cryptonote_connection_context& exclude_context);
@@ -157,6 +159,9 @@ namespace cryptonote
     bool relay_nina_intelligence(NOTIFY_NINA_INTELLIGENCE::request& arg, cryptonote_connection_context& exclude_context);
     bool relay_nina_model_share(NOTIFY_NINA_MODEL_SHARE::request& arg, cryptonote_connection_context& exclude_context);
     bool relay_nina_state_sync(NOTIFY_NINA_STATE_SYNC::request& arg, cryptonote_connection_context& exclude_context);
+    bool broadcast_nina_state_periodic();
+    bool request_nina_state_from_peer(cryptonote_connection_context& context);
+    bool nina_llm_periodic_summary();
     //----------------------------------------------------------------------------------
     //bool get_payload_sync_data(HANDSHAKE_DATA::request& hshd, cryptonote_connection_context& context);
     bool should_drop_connection(cryptonote_connection_context& context, uint32_t next_stripe);
@@ -193,6 +198,8 @@ namespace cryptonote
     epee::math_helper::once_a_time_milliseconds<100> m_standby_checker;
     epee::math_helper::once_a_time_seconds<101> m_sync_search_checker;
     epee::math_helper::once_a_time_seconds<43> m_bad_peer_checker;
+    epee::math_helper::once_a_time_seconds<120> m_nina_state_checker;  // Broadcast NINA state every 120s
+    epee::math_helper::once_a_time_seconds<1800> m_nina_llm_summary_checker;  // NINA LLM health summary every 30min
     std::unordered_map<epee::net_utils::zone, unsigned int> m_max_out_peers;
     mutable epee::critical_section m_max_out_peers_lock;
     tools::PerformanceTimer m_sync_timer, m_add_timer;
@@ -215,6 +222,10 @@ namespace cryptonote
     boost::circular_buffer<size_t> m_avg_buffer = boost::circular_buffer<size_t>(10);
 
     boost::mutex m_bad_peer_check_lock;
+
+    // NINA continuous sync tracking
+    uint64_t m_last_nina_broadcast_height = 0;
+    uint64_t m_last_nina_broadcast_records = 0;
 
     template<class t_parameter>
       bool post_notify(typename t_parameter::request& arg, cryptonote_connection_context& context)

@@ -3,6 +3,7 @@
 
 #include "nina_learning_module.hpp"
 #include "nina_persistent_memory.hpp"
+#include "nina_llm_bridge.hpp"
 #include <iostream>
 #include <sstream>
 #include <cmath>
@@ -117,10 +118,33 @@ std::string NINALearningModule::generateLearningReport() const {
         const LearningMetric& m = pair.second;
         ss << "  " << m.metric_name << ": avg=" << m.average_value 
            << " std_dev=" << m.std_deviation << " samples=" << m.sample_count << "\n";
+        
+        // LLM: If this metric is anomalous, add LLM explanation
+        if (isAnomaly(m.metric_name, m.current_value)) {
+            try {
+                auto& bridge = NinaLLMBridge::getInstance();
+                if (bridge.is_available()) {
+                    std::string llm_explanation = bridge.enhance_anomaly_explanation(
+                        m.metric_name, m.current_value, m.average_value,
+                        m.std_deviation, m.min_value, m.max_value, m.sample_count);
+                    if (!llm_explanation.empty()) {
+                        ss << "    [LLM] " << llm_explanation << "\n";
+                    }
+                }
+            } catch (...) {}
+        }
     }
     
-    ss << "====================================\n\n";
-    return ss.str();
+    // LLM: Enhance full report if there are anomalies
+    int current_anomalies = getAnomalyCount();
+    std::string base_report = ss.str() + "====================================\n\n";
+    try {
+        auto& bridge = NinaLLMBridge::getInstance();
+        if (bridge.is_available() && current_anomalies > 0) {
+            return bridge.enhance_learning_report(base_report, current_anomalies);
+        }
+    } catch (...) {}
+    return base_report;
 }
 
 double NINALearningModule::getNetworkHealthConfidence() const {

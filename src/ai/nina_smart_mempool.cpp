@@ -6,6 +6,7 @@
 // NEVER rejects transactions — only reorders them.
 
 #include "nina_smart_mempool.hpp"
+#include "nina_llm_bridge.hpp"
 #include <algorithm>
 #include <cmath>
 #include <sstream>
@@ -379,6 +380,30 @@ NINASmartMempool::MempoolHealth NINASmartMempool::assess_mempool_health(
                  << " tx=" << current_tx_count
                  << " spam_ratio=" << std::setprecision(1) << (spam_ratio * 100) << "%"
                  << " rate=" << std::setprecision(1) << tx_rate << " tx/min)");
+        
+        // LLM: Analyze degraded mempool with AI when health drops
+        try {
+            auto& bridge = ninacatcoin_ai::NinaLLMBridge::getInstance();
+            if (bridge.is_available()) {
+                std::string source_info = "patterns=" + std::to_string(m_source_patterns.size())
+                    + ",rate_anomaly=" + std::to_string(rate_anomaly);
+                auto insight = bridge.analyze_mempool(
+                    static_cast<uint32_t>(current_tx_count),
+                    current_weight,
+                    health.avg_fee_per_byte,
+                    static_cast<uint32_t>(health.bot_tx_count),
+                    static_cast<uint32_t>(health.spam_tx_count),
+                    static_cast<uint32_t>(health.normal_tx_count),
+                    health.health_score, source_info);
+                if (insight.valid) {
+                    MINFO("[NINA-MEMPOOL] [LLM] Spam probability: " << insight.spam_probability);
+                    MINFO("[NINA-MEMPOOL] [LLM] " << insight.analysis);
+                    if (!insight.recommended_action.empty()) {
+                        MINFO("[NINA-MEMPOOL] [LLM Action] " << insight.recommended_action);
+                    }
+                }
+            }
+        } catch (...) {}
     }
 
     return health;
@@ -546,6 +571,22 @@ std::string NINASmartMempool::generate_mempool_report()
     report << "  Baseline rate:     " << std::setprecision(1) << m_baseline_tx_rate_per_min << " tx/min\n";
     report << "\n";
     report << "Active Patterns: " << m_source_patterns.size() << "\n";
+    
+    // LLM: Enhance report with AI analysis when mempool is stressed
+    if (m_last_health.health_score < 80.0) {
+        try {
+            auto& bridge = ninacatcoin_ai::NinaLLMBridge::getInstance();
+            if (bridge.is_available()) {
+                std::string base = report.str();
+                std::string enhanced = bridge.enhance_mempool_report(
+                    base, m_last_health.health_score);
+                if (enhanced != base) {
+                    return enhanced + "\n=================================\n";
+                }
+            }
+        } catch (...) {}
+    }
+    
     report << "=================================\n";
 
     return report.str();
