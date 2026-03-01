@@ -6056,11 +6056,14 @@ void Blockchain::cancel()
 #if defined(PER_BLOCK_CHECKPOINT)
 // checkpoints.dat: 5 groups, 2560 blocks covered, updated 2026-02-10
 static const char expected_block_hashes_hash[] = "e4ed389412e3ad08bf14e505a812f041692611ec5ecee0a6da6a75dc111ee2b1";
-static const char CHECKPOINTS_DAT_URL[] = "https://ninacatcoin.es/checkpoints/checkpoints.dat";
+// NINA P2P: Centralized download URL removed — NINA generates checkpoints.dat locally
+// static const char CHECKPOINTS_DAT_URL[] = "https://ninacatcoin.es/checkpoints/checkpoints.dat";
 
 std::string Blockchain::get_checkpoints_dat_url()
 {
-  return std::string(CHECKPOINTS_DAT_URL);
+  // NINA P2P: No longer downloading from central server.
+  // checkpoints.dat is now generated locally by run_nina_checkpoint_cycle().
+  return std::string();
 }
 
 void Blockchain::load_compiled_in_block_hashes(const GetCheckpointsCallback& get_checkpoints)

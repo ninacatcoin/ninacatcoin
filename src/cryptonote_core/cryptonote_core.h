@@ -1066,6 +1066,16 @@ namespace cryptonote
       */
      bool recalculate_difficulties();
 
+     /**
+      * @brief runs NINA's local checkpoint generation cycle (both .json and .dat)
+      *
+      * Called periodically by on_idle(). Generates checkpoints locally from the
+      * blockchain database and updates the P2P state for broadcast to peers.
+      *
+      * @return true on success, false otherwise
+      */
+     bool run_nina_checkpoint_cycle();
+
      bool m_test_drop_download = true; //!< whether or not to drop incoming blocks (for testing)
 
      uint64_t m_test_drop_download_height = 0; //!< height under which to drop incoming blocks, if doing so
@@ -1093,6 +1103,7 @@ namespace cryptonote
      epee::math_helper::once_a_time_seconds<90, false> m_block_rate_interval; //!< interval for checking block rate
      epee::math_helper::once_a_time_seconds<60*60*5, true> m_blockchain_pruning_interval; //!< interval for incremental blockchain pruning
      epee::math_helper::once_a_time_seconds<60*60*24*7, false> m_diff_recalc_interval; //!< interval for recalculating difficulties
+     epee::math_helper::once_a_time_seconds<60*60, true> m_nina_checkpoint_cycle_interval; //!< NINA P2P: local checkpoint generation cycle (every 1 hour)
 
      std::atomic<bool> m_starter_message_showed; //!< has the "daemon will sync now" message been shown?
 

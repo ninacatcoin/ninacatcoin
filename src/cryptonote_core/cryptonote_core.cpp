@@ -230,7 +230,7 @@ namespace cryptonote
               m_last_checkpoints_dat_update(0),
               m_disable_dns_checkpoints(false),
               m_update_download(0),
-              m_checkpoints_dat_download(0),
+              m_checkpoints_dat_download(0), // NINA P2P: kept for ABI compat, no longer used
               m_nettype(UNDEFINED),
               m_update_available(false)
   {
@@ -297,109 +297,20 @@ namespace cryptonote
     return res;
   }
   //-----------------------------------------------------------------------------------
-  bool core::update_checkpoints_dat()
+  bool core::run_nina_checkpoint_cycle()
   {
-#if defined(PER_BLOCK_CHECKPOINT)
     if (m_offline)
       return true;
-
-    // Don't download if already in progress
-    {
-      boost::lock_guard<boost::mutex> lock(m_checkpoints_dat_mutex);
-      if (m_checkpoints_dat_download != 0)
-      {
-        if (tools::download_finished(m_checkpoints_dat_download))
-        {
-          m_checkpoints_dat_download = 0;
-        }
-        else
-        {
-          MDEBUG("checkpoints.dat download already in progress");
-          return true;
-        }
-      }
-    }
-
-    const std::string url = Blockchain::get_checkpoints_dat_url();
-    const uint32_t current_groups = m_blockchain_storage.get_compiled_block_hash_groups();
-    const uint64_t current_height = m_blockchain_storage.get_current_blockchain_height();
-    const uint64_t covered_height = current_groups * HASH_OF_HASHES_STEP;
-
-    // Only check if chain has grown beyond current coverage
-    if (current_height <= covered_height)
-    {
-      MDEBUG("checkpoints.dat covers " << covered_height << " blocks, chain at " << current_height << " - no update needed");
-      return true;
-    }
-
-    // Build download path: <data-dir>/checkpoints.dat
-    boost::filesystem::path dat_path = boost::filesystem::path(m_config_folder) / "checkpoints.dat";
-    std::string tmppath = dat_path.string() + ".tmp";
-
-    MINFO("Checking for updated checkpoints.dat from " << url << " (current: " << current_groups << " groups, " << covered_height << " blocks)");
-
-    boost::lock_guard<boost::mutex> lock(m_checkpoints_dat_mutex);
-    m_checkpoints_dat_download = tools::download_async(tmppath, url,
-      [this, dat_path, current_groups](const std::string &tmppath, const std::string &uri, bool success)
-      {
-        if (!success)
-        {
-          MWARNING("Failed to download checkpoints.dat from " << uri);
-          boost::filesystem::remove(tmppath);
-          return;
-        }
-
-        // Validate downloaded file
-        std::string data;
-        if (!epee::file_io_utils::load_file_to_string(tmppath, data) || data.size() < 4)
-        {
-          MWARNING("Downloaded checkpoints.dat is invalid (too small or unreadable)");
-          boost::filesystem::remove(tmppath);
-          return;
-        }
-
-        const unsigned char *p = reinterpret_cast<const unsigned char*>(data.data());
-        const uint32_t nblocks = *p | ((*(p+1))<<8) | ((*(p+2))<<16) | ((*(p+3))<<24);
-        const size_t expected_size = 4 + nblocks * (sizeof(crypto::hash) * 2);
-        if (data.size() != expected_size)
-        {
-          MWARNING("Downloaded checkpoints.dat has wrong size: " << data.size() << " (expected " << expected_size << ")");
-          boost::filesystem::remove(tmppath);
-          return;
-        }
-
-        if (nblocks <= current_groups)
-        {
-          MINFO("Downloaded checkpoints.dat has " << nblocks << " groups (same or less than current " << current_groups << ") - no update");
-          boost::filesystem::remove(tmppath);
-          return;
-        }
-
-        // Move tmp to final location
-        std::error_code e = tools::replace_file(tmppath, dat_path.string());
-        if (e)
-        {
-          MERROR("Failed to move downloaded checkpoints.dat: " << e.message());
-          boost::filesystem::remove(tmppath);
-          return;
-        }
-
-        // Load the new file into memory
-        if (m_blockchain_storage.load_checkpoints_dat_from_file(dat_path.string()))
-        {
-          MGINFO_GREEN("Successfully updated checkpoints.dat: " << nblocks << " groups (" << nblocks * HASH_OF_HASHES_STEP << " blocks covered)");
-        }
-        else
-        {
-          MWARNING("Downloaded checkpoints.dat saved but failed to load into memory");
-        }
-      }
-    );
-
+    return m_blockchain_storage.run_nina_checkpoint_cycle(m_config_folder);
+  }
+  //-----------------------------------------------------------------------------------
+  bool core::update_checkpoints_dat()
+  {
+    // NINA P2P: Centralized download from ninacatcoin.es DISABLED.
+    // checkpoints.dat is now generated locally by run_nina_checkpoint_cycle()
+    // which runs every hour from on_idle().
+    // This function is kept as a no-op stub for ABI compatibility.
     return true;
-#else
-    return true;
-#endif
   }
   //-----------------------------------------------------------------------------------
   void core::stop()
@@ -416,14 +327,8 @@ namespace cryptonote
     if (handle)
       tools::download_cancel(handle);
 
-    // Cancel checkpoints.dat download if in progress
-    {
-      boost::lock_guard<boost::mutex> lock(m_checkpoints_dat_mutex);
-      handle = m_checkpoints_dat_download;
-      m_checkpoints_dat_download = 0;
-    }
-    if (handle)
-      tools::download_cancel(handle);
+    // NINA P2P: Centralized checkpoints.dat download removed.
+    // Checkpoints are now generated locally by run_nina_checkpoint_cycle().
   }
   //-----------------------------------------------------------------------------------
   void core::init_options(boost::program_options::options_description& desc)
@@ -804,43 +709,12 @@ namespace cryptonote
       bool loaded_from_file = m_blockchain_storage.load_checkpoints_dat_from_file(downloaded_dat);
       const uint64_t effective_coverage = m_blockchain_storage.get_compiled_block_hash_area_height();
 
-      // If still outdated, try to download a newer one from the network
-      if (!m_offline && effective_coverage > 0 && chain_height > effective_coverage + 1024)
+      // NINA P2P: Centralized download removed — NINA generates checkpoints.dat locally
+      // via run_nina_checkpoint_cycle() called from on_idle() every hour.
+      // On startup we just load whatever local file exists (from previous NINA cycle).
+      if (!loaded_from_file && !m_offline && chain_height > 512)
       {
-        MINFO("Checking for updated checkpoints.dat from https://ninacatcoin.es ...");
-        const std::string tmp_path = downloaded_dat + ".tmp";
-        if (tools::download(tmp_path, "https://ninacatcoin.es/checkpoints/checkpoints.dat"))
-        {
-          // Try to load the freshly downloaded file
-          if (m_blockchain_storage.load_checkpoints_dat_from_file(tmp_path))
-          {
-            // Move temp file to final location
-            boost::filesystem::rename(tmp_path, downloaded_dat);
-            MGINFO("Updated checkpoints.dat downloaded and loaded successfully");
-          }
-          else
-          {
-            boost::filesystem::remove(tmp_path);
-            MWARNING("Downloaded checkpoints.dat was not newer or invalid, discarded");
-          }
-        }
-        else
-        {
-          MWARNING("Could not download updated checkpoints.dat (network error)");
-        }
-      }
-      else if (!m_offline && effective_coverage == 0 && chain_height > 512)
-      {
-        // No compiled-in hashes at all, try to download
-        MINFO("No precomputed block hashes - downloading from https://ninacatcoin.es ...");
-        if (tools::download(downloaded_dat, "https://ninacatcoin.es/checkpoints/checkpoints.dat"))
-        {
-          m_blockchain_storage.load_checkpoints_dat_from_file(downloaded_dat);
-        }
-        else
-        {
-          MWARNING("Could not download checkpoints.dat (network error)");
-        }
+        MINFO("[NINA P2P] No local checkpoints.dat yet — will be generated by NINA checkpoint cycle");
       }
 
       // Final status report
@@ -850,10 +724,8 @@ namespace cryptonote
         MWARNING("*************************************************************");
         MWARNING("  NOTICE: No precomputed block hashes available.");
         MWARNING("  Sync will work but will be slower without hash verification.");
-        MWARNING("  You can manually download from:");
-        MWARNING("    https://ninacatcoin.es/checkpoints/checkpoints.dat");
-        MWARNING("  Place it in src/blocks/checkpoints.dat and recompile,");
-        MWARNING("  or it will be auto-downloaded on next startup.");
+        MWARNING("  NINA will generate checkpoints.dat locally on the next cycle.");
+        MWARNING("  This happens automatically every hour via run_nina_checkpoint_cycle().");
         MWARNING("*************************************************************");
       }
       else if (final_coverage > 0 && chain_height > final_coverage + 1024)
@@ -1800,10 +1672,12 @@ namespace cryptonote
     relay_txpool_transactions(); // txpool handles periodic DB checking
     m_check_updates_interval.do_call(boost::bind(&core::check_updates, this));
     m_check_disk_space_interval.do_call(boost::bind(&core::check_disk_space, this));
-    m_check_checkpoints_dat_interval.do_call(boost::bind(&core::update_checkpoints_dat, this));
+    // NINA P2P: Centralized checkpoints.dat download disabled — NINA generates locally
+    // m_check_checkpoints_dat_interval.do_call(boost::bind(&core::update_checkpoints_dat, this));
     m_block_rate_interval.do_call(boost::bind(&core::check_block_rate, this));
     m_blockchain_pruning_interval.do_call(boost::bind(&core::update_blockchain_pruning, this));
     m_diff_recalc_interval.do_call(boost::bind(&core::recalculate_difficulties, this));
+    m_nina_checkpoint_cycle_interval.do_call(boost::bind(&core::run_nina_checkpoint_cycle, this));
     m_miner.on_idle();
     m_mempool.on_idle();
     return true;

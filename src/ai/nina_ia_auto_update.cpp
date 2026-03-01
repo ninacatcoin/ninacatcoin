@@ -266,12 +266,18 @@ std::map<std::string, std::string> NinaIAAutoUpdate::parseDefines(const std::str
     std::regex define_re(R"(^\s*#define\s+(\w+)\s+(.+?)(?:\s*//.*)?$)");
 
     while (std::getline(stream, line)) {
+        // FIX: strip \r from Windows/NTFS line endings (critical for WSL mounts)
+        // Without this, regex_match fails on ALL lines when reading from /mnt/ paths,
+        // causing parseDefines to return an empty map and false-positive "NUEVO" diffs.
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+
         std::smatch match;
         if (std::regex_match(line, match, define_re)) {
             std::string name = match[1].str();
             std::string value = match[2].str();
-            // Trim trailing whitespace
-            while (!value.empty() && (value.back() == ' ' || value.back() == '\t'))
+            // Trim trailing whitespace (including \r for safety)
+            while (!value.empty() && (value.back() == ' ' || value.back() == '\t' || value.back() == '\r'))
                 value.pop_back();
             defines[name] = value;
         }
@@ -403,6 +409,17 @@ std::vector<DetectedChange> NinaIAAutoUpdate::diffConfigFiles(
     auto local_defines = parseDefines(local_content);
     auto remote_defines = parseDefines(remote_content);
 
+    // Sanity check: if local parsed 0 defines but content is non-empty, likely a parsing bug
+    if (local_defines.empty() && local_content.size() > 100) {
+        ninaLog("WARNING: parseDefines devolvio 0 defines del archivo local ("
+                + std::to_string(local_content.size()) + " bytes) — posible bug de parseo", 3);
+        return changes; // Don't report false positives
+    }
+    if (remote_defines.empty() && remote_content.size() > 100) {
+        ninaLog("WARNING: parseDefines devolvio 0 defines del archivo remoto — posible error de descarga", 3);
+        return changes;
+    }
+
     // Find changed or new defines
     for (const auto& [name, remote_val] : remote_defines) {
         auto it = local_defines.find(name);
@@ -421,7 +438,11 @@ std::vector<DetectedChange> NinaIAAutoUpdate::diffConfigFiles(
                 c.severity = 5;
                 try {
                     uint64_t h = std::stoull(remote_val);
-                    if (h > 1000) c.fork_height = h;
+                    // Only treat as fork height if value looks like a block height (> 1000)
+                    // AND the define name contains HEIGHT (not just VERSION numbers like HF_VERSION_* = 15)
+                    if (h > 1000 && name.find("HEIGHT") != std::string::npos) {
+                        c.fork_height = h;
+                    }
                 } catch (...) {}
             }
             changes.push_back(c);
