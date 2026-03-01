@@ -6241,11 +6241,60 @@ bool Blockchain::run_nina_checkpoint_cycle(const std::string& data_dir)
   //   3. P2P broadcast is handled by the protocol handler after state update
   try
   {
+    const uint64_t current_height = m_db->height();
     MINFO("[NINA P2P] ══════════════════════════════════════════════");
     MINFO("[NINA P2P] Blockchain::run_nina_checkpoint_cycle starting");
-    MINFO("[NINA P2P]   Height: " << m_db->height());
+    MINFO("[NINA P2P]   Height: " << current_height);
     MINFO("[NINA P2P]   Data dir: " << data_dir);
     MINFO("[NINA P2P] ══════════════════════════════════════════════");
+
+    // Step 0: Scan new blocks and add checkpoints every 30 blocks.
+    // m_checkpoints.m_points only has the entries loaded at startup;
+    // we need to feed it with the hashes of blocks that arrived since then.
+    {
+      const uint64_t interval = 30; // same as m_checkpoint_interval
+      const uint64_t safety_margin = 10; // don't checkpoint very recent blocks (reorg safety)
+      const uint64_t max_cp_height = m_checkpoints.get_max_height();
+      const uint64_t safe_height = (current_height > safety_margin) ? (current_height - safety_margin) : 0;
+
+      // Start from the next checkpoint after the last known one
+      uint64_t start = max_cp_height + interval;
+      // Align to interval
+      start = (start / interval) * interval;
+
+      uint64_t added = 0;
+      for (uint64_t h = start; h <= safe_height; h += interval)
+      {
+        try
+        {
+          crypto::hash block_hash = m_db->get_block_hash_from_height(h);
+          if (block_hash != crypto::null_hash)
+          {
+            std::string hash_str = epee::string_tools::pod_to_hex(block_hash);
+            if (m_checkpoints.add_checkpoint(h, hash_str))
+            {
+              ++added;
+            }
+          }
+        }
+        catch (const std::exception& e)
+        {
+          MWARNING("[NINA P2P] Could not get block hash at height " << h << ": " << e.what());
+          break; // stop scanning if DB can't provide the hash
+        }
+      }
+
+      if (added > 0)
+      {
+        MINFO("[NINA P2P] ✓ Added " << added << " new checkpoints from blockchain scan"
+              << " (heights " << start << " to " << m_checkpoints.get_max_height() << ")");
+      }
+      else
+      {
+        MDEBUG("[NINA P2P] No new checkpoints to add (max_cp=" << max_cp_height
+               << ", safe_height=" << safe_height << ")");
+      }
+    }
 
     // Run the checkpoint generation cycle (generates both .json and .dat)
     bool result = m_checkpoints.run_checkpoint_cycle(data_dir, m_db);
