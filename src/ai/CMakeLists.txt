@@ -58,6 +58,23 @@ add_library(ninacatcoin_ai STATIC
   nina_model_validator.hpp
   nina_llm_bridge.hpp
   ai_embedded_model_weights.hpp
+  # Daemon AI modules needed by cryptonote_core (blockchain.cpp)
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_decision_engine.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_decision_engine.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_llm_engine.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_llm_engine.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_learning_module.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_learning_module.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_block_data_logger.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_block_data_logger.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_memory_system.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_memory_system.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_persistence_engine.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_persistence_engine.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_complete_evolution.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_complete_evolution.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_constitution.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_constitution.hpp
 )
 
 target_include_directories(ninacatcoin_ai
@@ -67,6 +84,9 @@ target_include_directories(ninacatcoin_ai
     ${CMAKE_CURRENT_SOURCE_DIR}/../../contrib/epee/include
     ${CMAKE_BINARY_DIR}/generated_include
     ${JSONCPP_INCLUDE_DIRS}
+  PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/daemon
+    ${CMAKE_SOURCE_DIR}/external/llama.cpp/include
 )
 
 target_compile_definitions(ninacatcoin_ai
@@ -91,6 +111,9 @@ target_link_libraries(ninacatcoin_ai
   PUBLIC
     common
     ${JSONCPP_LIBRARIES}
+    llama
+    ggml
+    CURL::libcurl
 )
 
 if(OPENSSL_FOUND)

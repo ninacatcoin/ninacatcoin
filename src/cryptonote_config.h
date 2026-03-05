@@ -41,14 +41,15 @@
 #define CRYPTONOTE_MAX_TX_SIZE                          1000000
 #define CRYPTONOTE_MAX_TX_PER_BLOCK                     0x10000000
 #define CRYPTONOTE_PUBLIC_ADDRESS_TEXTBLOB_VER          0
-#define CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW            60
+#define CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW            60  // v1 blocks (heights 0-2): 60 blocks unlock (matches genesis TX)
+#define CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW_V18         30  // v18 blocks (height 3+): 30 blocks × 120s = 1 hour
 #define CURRENT_TRANSACTION_VERSION                     2
 #define CURRENT_BLOCK_MAJOR_VERSION                     1
 #define CURRENT_BLOCK_MINOR_VERSION                     0
 #define CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT              60*60*2
 #define CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE             10
 
-#define BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW               60
+#define BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW               30  // 30 blocks × 120s = 1 hour (same real time as Monero 60×60s)
 
 // MONEY_SUPPLY - total number coins to be generated
 #define MONEY_SUPPLY                                    ((uint64_t)900000000 * COIN)
@@ -68,6 +69,22 @@
 #define X2_TIMES_PER_YEAR                               183
 #define X200_TIMES_PER_YEAR                             6
 
+// ─── NINA Event System v2 (Multi-Hash + Spike Protection) ───────────────
+// Post-fork: event seed uses last 10 block hashes concatenated, preventing
+// manipulation (attacker would need to control 10 consecutive blocks).
+// Events pay directly to the miner (X2=8, X200=800 NINA) — same as legacy.
+// Anti-NiceHash: if hashrate spikes >50%, events freeze for a pseudo-random
+// number of blocks (5-30), derived from chain data (deterministic consensus).
+//
+#define NINA_EVENT_V2_HEIGHT                            3      // Active from v18 fork height
+#define NINA_EVENT_MULTI_HASH_DEPTH                     10     // concat last 10 hashes as seed
+#define NINA_EVENT_SPIKE_THRESHOLD_NUM                  3      // spike ratio 3/2 = 1.5x (50% increase)
+#define NINA_EVENT_SPIKE_THRESHOLD_DEN                  2
+#define NINA_EVENT_FREEZE_MIN                           5      // minimum freeze blocks
+#define NINA_EVENT_FREEZE_RANGE                         26     // random range: 5 to 30 blocks
+#define NINA_EVENT_SPIKE_RECENT                         5      // recent blocks for spike calc
+#define NINA_EVENT_SPIKE_BASELINE                       20     // baseline blocks for spike calc
+
 #define CRYPTONOTE_REWARD_BLOCKS_WINDOW                 100
 #define CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V2    60000 //size of block (bytes) after which reward for block calculated using block size
 #define CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V1    20000 //size of block (bytes) after which reward for block calculated using block size - before first fork
@@ -79,12 +96,19 @@
 // COIN - number of smallest units in one coin
 #define COIN                                            ((uint64_t)1000000000000) // pow(10, 12)
 
-#define FEE_PER_KB_OLD                                  ((uint64_t)10000000000) // pow(10, 10)
-#define FEE_PER_KB                                      ((uint64_t)2000000000) // 2 * pow(10, 9)
-#define FEE_PER_BYTE                                    ((uint64_t)300000)
-#define DYNAMIC_FEE_PER_KB_BASE_FEE                     ((uint64_t)2000000000) // 2 * pow(10,9)
-#define DYNAMIC_FEE_PER_KB_BASE_BLOCK_REWARD            ((uint64_t)10000000000000) // 10 * pow(10,12)
-#define DYNAMIC_FEE_PER_KB_BASE_FEE_V5                  ((uint64_t)2000000000 * (uint64_t)CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V2 / CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5)
+// ─── NINACATCOIN FEE CALIBRATION ────────────────────────────────────────
+// Calibrated for: base_reward = 4 NINA (blocks 0-262799), 2 NINA (262800+)
+// Dynamic formula: fee = BASE_FEE × (BASE_BLOCK_REWARD / actual_reward)
+//   At 4 NINA reward: multiplier = 1.0 → ~0.001 NINA/KB
+//   At 2 NINA reward: multiplier = 2.0 → ~0.002 NINA/KB (fees double with halving)
+// A typical 2KB TX costs: 0.002 NINA (now) → 0.004 NINA (after halving)
+//
+#define FEE_PER_KB_OLD                                  ((uint64_t)4000000000)    // 0.004 NINA (old fixed fallback)
+#define FEE_PER_KB                                      ((uint64_t)1000000000)    // 0.001 NINA (current fixed fallback)
+#define FEE_PER_BYTE                                    ((uint64_t)200000)        // ~0.0003 NINA per typical 1.5KB TX
+#define DYNAMIC_FEE_PER_KB_BASE_FEE                     ((uint64_t)1000000000)    // 0.001 NINA base
+#define DYNAMIC_FEE_PER_KB_BASE_BLOCK_REWARD            ((uint64_t)4000000000000) // 4 NINA = current base reward
+#define DYNAMIC_FEE_PER_KB_BASE_FEE_V5                  ((uint64_t)DYNAMIC_FEE_PER_KB_BASE_FEE * (uint64_t)CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V2 / CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5)
 #define DYNAMIC_FEE_REFERENCE_TRANSACTION_WEIGHT         ((uint64_t)3000)
 
 #define ORPHANED_BLOCKS_MAX_COUNT                       100
@@ -97,10 +121,8 @@
 #define DIFFICULTY_CUT                                  6   // timestamps to cut after sorting (reduced from 60)
 #define DIFFICULTY_BLOCKS_COUNT                         DIFFICULTY_WINDOW + DIFFICULTY_LAG
 
-// NINACOIN: Emergency difficulty reset - ignore blocks before this height
-// for difficulty calculation. This effectively restarts the LWMA window
-// after a major hashrate drop (large miner departure at height ~4724).
-#define DIFFICULTY_RESET_HEIGHT                          4726
+// NINACOIN: Emergency difficulty reset - not needed (v18 fork at height 3)
+#define DIFFICULTY_RESET_HEIGHT                          0
 
 // NINACOIN: Emergency Difficulty Adjustment (EDA)
 // If the last block took more than EDA_THRESHOLD * target seconds,
@@ -108,11 +130,11 @@
 // when a large miner suddenly departs.
 #define DIFFICULTY_EDA_THRESHOLD                         6   // trigger when block > 6 * 120s = 720s
 
-// NINACOIN: NINA Local Difficulty Assist fork height
-// Activates deterministic local hashrate-trend correction (±5% max)
+// NINACOIN: NINA Local Difficulty Assist — active from height 3
+// Deterministic local hashrate-trend correction (±5% max)
 // that complements LWMA by reacting faster to sudden hashrate changes.
 // Uses only blockchain data (timestamps/difficulties) — fully deterministic.
-#define NINA_LOCAL_FORK_HEIGHT                           15000
+#define NINA_LOCAL_FORK_HEIGHT                           3
 #define NINA_LOCAL_RECENT_WINDOW                         5   // blocks for recent average
 #define NINA_LOCAL_OLDER_WINDOW                          15  // blocks for baseline average
 #define NINA_LOCAL_SMOOTHING                             0.3 // dampening factor (0-1)
@@ -121,16 +143,16 @@
 // ─── NINA AI LLM Model Configuration ────────────────────────────────────
 // SHA-256 hash of the official NINA GGUF model file.
 // Compiled into the binary — verified at daemon startup.
-// Llama-3.2-3B-Instruct QLoRA r64/a128 → Q4_K_M (1918 MB, 5.01 BPW)
-// Generated: nina-llama3.2-3b-Q4_K_M.gguf
-#define NINA_MODEL_HASH "5c7be16cf1cc6a6a4e46e5adb85acf684af228abd10ef70178e81f95d7562ca9"
+// Llama-3.2-3B-Instruct QLoRA r32/a64 → Q4_K_M (1918 MB, 5.01 BPW)
+// Generated: nina-llama3.2-3b-nina-Q4_K_M.gguf  (v2 — 3074 examples, 2026-03-02)
+#define NINA_MODEL_HASH "2aca8ecbdb1176a9c4c6adac6d42722bd2bb3a74b8a63de56298480161702bf6"
 
 // Model file name (expected in data_dir)
 #define NINA_MODEL_FILENAME "nina_model.gguf"
 
 // Model download URLs (tried in order; SHA-256 verified after download)
-#define NINA_MODEL_DOWNLOAD_URL_PRIMARY   "https://huggingface.co/ninacatcoin/nina-model/resolve/main/nina-llama3.2-3b-Q4_K_M.gguf"
-#define NINA_MODEL_DOWNLOAD_URL_FALLBACK  "https://github.com/ninacatcoin/ninacatcoin/releases/download/v0.18/nina-llama3.2-3b-Q4_K_M.gguf"
+#define NINA_MODEL_DOWNLOAD_URL_PRIMARY   "https://huggingface.co/ninacatcoin/nina-model/resolve/main/nina-llama3.2-3b-nina-Q4_K_M.gguf"
+#define NINA_MODEL_DOWNLOAD_URL_FALLBACK  "https://github.com/ninacatcoin/ninacatcoin/releases/download/v0.18/nina-llama3.2-3b-nina-Q4_K_M.gguf"
 
 // Model size bounds (sanity check before loading)
 #define NINA_MODEL_MIN_SIZE_BYTES  (100ULL * 1024 * 1024)     // 100 MB minimum
@@ -165,25 +187,20 @@
 #define BLOCKS_SYNCHRONIZING_DEFAULT_COUNT              20     //by default, blocks count in blocks downloading
 #define BLOCKS_SYNCHRONIZING_MAX_COUNT                  2048   //must be a power of 2, greater than 128, equal to SEEDHASH_EPOCH_BLOCKS
 
-// ===== NINACATCOIN RANDOMX DUAL-MODE MINING CONSTANTS =====
-// These constants implement the Dual-Mode CPU/GPU mining strategy
-// Author: ninacatcoin Development Team
-
-#define RANDOMX_DATASET_BASE_SIZE                       2147483648ULL    // 2GB base dataset
-#define RANDOMX_DATASET_GROWTH                          10485760ULL      // +10MB per TH/s of network hashrate
-#define RANDOMX_DATASET_MAX_SIZE                        4294967296ULL    // 4GB maximum dataset size
-#define GPU_PENALTY_INTERVAL                            5                 // Every 5th block = GPU penalty mode
-
 #define CRYPTONOTE_MEMPOOL_TX_LIVETIME                    (86400*3) //seconds, three days
 #define CRYPTONOTE_MEMPOOL_TX_FROM_ALT_BLOCK_LIVETIME     604800 //seconds, one week
 
 
-#define CRYPTONOTE_DANDELIONPP_STEMS              2 // number of outgoing stem connections per epoch
-#define CRYPTONOTE_DANDELIONPP_FLUFF_PROBABILITY 20 // out of 100
-#define CRYPTONOTE_DANDELIONPP_MIN_EPOCH         10 // minutes
-#define CRYPTONOTE_DANDELIONPP_EPOCH_RANGE       30 // seconds
-#define CRYPTONOTE_DANDELIONPP_FLUSH_AVERAGE      5 // seconds average for poisson distributed fluff flush
-#define CRYPTONOTE_DANDELIONPP_EMBARGO_AVERAGE   39 // seconds (see tx_pool.cpp for more info)
+// ─── NINACATCOIN DANDELION++ (differentiated from Monero) ───────────────
+// Different parameters prevent cross-chain timing correlation attacks.
+// Longer epochs and lower fluff probability = stronger stem privacy.
+//
+#define CRYPTONOTE_DANDELIONPP_STEMS              3 // 3 stem connections (Monero: 2) — harder to trace
+#define CRYPTONOTE_DANDELIONPP_FLUFF_PROBABILITY 15 // 15% (Monero: 20%) — longer stem phase
+#define CRYPTONOTE_DANDELIONPP_MIN_EPOCH         15 // 15 min (Monero: 10) — less frequent epoch rotation
+#define CRYPTONOTE_DANDELIONPP_EPOCH_RANGE       45 // 45 sec (Monero: 30) — more epoch jitter
+#define CRYPTONOTE_DANDELIONPP_FLUSH_AVERAGE      7 // 7 sec (Monero: 5) — more delayed fluff
+#define CRYPTONOTE_DANDELIONPP_EMBARGO_AVERAGE   50 // 50 sec (Monero: 39) — longer embargo window
 
 // see src/cryptonote_protocol/levin_notify.cpp
 #define CRYPTONOTE_NOISE_MIN_EPOCH                      5      // minutes
@@ -208,29 +225,60 @@
 #define DEFAULT_RPC_SOFT_LIMIT_SIZE                     25 * 1024 * 1024 // 25 MiB
 #define MAX_RPC_CONTENT_LENGTH                          1048576 // 1 MB
 
-#define P2P_LOCAL_WHITE_PEERLIST_LIMIT                  1000
-#define P2P_LOCAL_GRAY_PEERLIST_LIMIT                   5000
+// =====================================================================
+// NinaCatCoin P2P Network Parameters
+// Intentionally different from Monero to fingerprint spy tools that
+// assume Monero defaults (60s sync, 250 peers, 1000 whitelist).
+// For large network mode (100,000+ nodes): uncomment NINACATCOIN_LARGE_NETWORK
+// =====================================================================
 
-#define P2P_DEFAULT_CONNECTIONS_COUNT                   12
-#define P2P_DEFAULT_HANDSHAKE_INTERVAL                  60           //secondes
-#define P2P_DEFAULT_PACKET_MAX_SIZE                     50000000     //50000000 bytes maximum packet size
-#define P2P_DEFAULT_PEERS_IN_HANDSHAKE                  250
-#define P2P_MAX_PEERS_IN_HANDSHAKE                      250
-#define P2P_DEFAULT_CONNECTION_TIMEOUT                  5000       //5 seconds
-#define P2P_DEFAULT_SOCKS_CONNECT_TIMEOUT               45         // seconds
-#define P2P_DEFAULT_PING_CONNECTION_TIMEOUT             2000       //2 seconds
-#define P2P_DEFAULT_INVOKE_TIMEOUT                      60*2*1000  //2 minutes
-#define P2P_DEFAULT_HANDSHAKE_INVOKE_TIMEOUT            5000       //5 seconds
-#define P2P_DEFAULT_WHITELIST_CONNECTIONS_PERCENT       70
-#define P2P_DEFAULT_ANCHOR_CONNECTIONS_COUNT            2
-#define P2P_DEFAULT_SYNC_SEARCH_CONNECTIONS_COUNT       2
-#define P2P_DEFAULT_LIMIT_RATE_UP                       8192       // kB/s
-#define P2P_DEFAULT_LIMIT_RATE_DOWN                     32768       // kB/s
+// Uncomment the next line when network exceeds 100,000 nodes:
+// #define NINACATCOIN_LARGE_NETWORK
+
+#ifdef NINACATCOIN_LARGE_NETWORK
+  // --- LARGE NETWORK MODE (100,000+ nodes) ---
+  #define P2P_LOCAL_WHITE_PEERLIST_LIMIT                  2000
+  #define P2P_LOCAL_GRAY_PEERLIST_LIMIT                   10000
+  #define P2P_DEFAULT_CONNECTIONS_COUNT                   16
+  #define P2P_DEFAULT_HANDSHAKE_INTERVAL                  45           //seconds
+  #define P2P_DEFAULT_PACKET_MAX_SIZE                     50000000     //50000000 bytes maximum packet size
+  #define P2P_DEFAULT_PEERS_IN_HANDSHAKE                  150
+  #define P2P_MAX_PEERS_IN_HANDSHAKE                      150
+  #define P2P_DEFAULT_CONNECTION_TIMEOUT                  3000       //3 seconds
+  #define P2P_DEFAULT_SOCKS_CONNECT_TIMEOUT               45         // seconds
+  #define P2P_DEFAULT_PING_CONNECTION_TIMEOUT             2000       //2 seconds
+  #define P2P_DEFAULT_INVOKE_TIMEOUT                      60*2*1000  //2 minutes
+  #define P2P_DEFAULT_HANDSHAKE_INVOKE_TIMEOUT            5000       //5 seconds
+  #define P2P_DEFAULT_WHITELIST_CONNECTIONS_PERCENT       70
+  #define P2P_DEFAULT_ANCHOR_CONNECTIONS_COUNT            4
+  #define P2P_DEFAULT_SYNC_SEARCH_CONNECTIONS_COUNT       4
+  #define P2P_DEFAULT_LIMIT_RATE_UP                       16384      // kB/s
+  #define P2P_DEFAULT_LIMIT_RATE_DOWN                     65536      // kB/s
+#else
+  // --- STANDARD MODE (current network size) ---
+  #define P2P_LOCAL_WHITE_PEERLIST_LIMIT                  500
+  #define P2P_LOCAL_GRAY_PEERLIST_LIMIT                   2500
+  #define P2P_DEFAULT_CONNECTIONS_COUNT                   8
+  #define P2P_DEFAULT_HANDSHAKE_INTERVAL                  45           //seconds
+  #define P2P_DEFAULT_PACKET_MAX_SIZE                     50000000     //50000000 bytes maximum packet size
+  #define P2P_DEFAULT_PEERS_IN_HANDSHAKE                  100
+  #define P2P_MAX_PEERS_IN_HANDSHAKE                      100
+  #define P2P_DEFAULT_CONNECTION_TIMEOUT                  3000       //3 seconds
+  #define P2P_DEFAULT_SOCKS_CONNECT_TIMEOUT               45         // seconds
+  #define P2P_DEFAULT_PING_CONNECTION_TIMEOUT             2000       //2 seconds
+  #define P2P_DEFAULT_INVOKE_TIMEOUT                      60*2*1000  //2 minutes
+  #define P2P_DEFAULT_HANDSHAKE_INVOKE_TIMEOUT            5000       //5 seconds
+  #define P2P_DEFAULT_WHITELIST_CONNECTIONS_PERCENT       70
+  #define P2P_DEFAULT_ANCHOR_CONNECTIONS_COUNT            2
+  #define P2P_DEFAULT_SYNC_SEARCH_CONNECTIONS_COUNT       2
+  #define P2P_DEFAULT_LIMIT_RATE_UP                       8192       // kB/s
+  #define P2P_DEFAULT_LIMIT_RATE_DOWN                     32768      // kB/s
+#endif
 
 #define P2P_FAILED_ADDR_FORGET_SECONDS                  (60*60)     //1 hour
 #define P2P_IP_BLOCKTIME                                (60*60*24)  //24 hour
 #define P2P_IP_FAILS_BEFORE_BLOCK                       10
-#define P2P_IDLE_CONNECTION_KILL_INTERVAL               (5*60) //5 minutes
+#define P2P_IDLE_CONNECTION_KILL_INTERVAL               (3*60) //3 minutes
 
 #define P2P_SUPPORT_FLAG_FLUFFY_BLOCKS                  0x01
 #define P2P_SUPPORT_FLAGS                               P2P_SUPPORT_FLAG_FLUFFY_BLOCKS
@@ -246,12 +294,12 @@
 
 #define THREAD_STACK_SIZE                       5 * 1024 * 1024
 
-#define HF_VERSION_DYNAMIC_FEE                  4
-#define HF_VERSION_MIN_MIXIN_4                  4
-#define HF_VERSION_MIN_MIXIN_6                  6
-#define HF_VERSION_MIN_MIXIN_10                 10
+#define HF_VERSION_DYNAMIC_FEE                  1
+#define HF_VERSION_MIN_MIXIN_4                  1
+#define HF_VERSION_MIN_MIXIN_6                  1
+#define HF_VERSION_MIN_MIXIN_10                 1
 // NINACOIN: HF-based mixin thresholds (legacy — kept as fallback)
-#define HF_VERSION_MIN_MIXIN_15                 17
+#define HF_VERSION_MIN_MIXIN_15                 1
 #define HF_VERSION_MIN_MIXIN_20                 255  // Not HF-gated — controlled by Adaptive Ring
 
 // ─── NINA Adaptive Ring System ──────────────────────────────────────────
@@ -265,15 +313,15 @@
 //
 // Grace period: during the first 5,000 outputs after a threshold,
 // both the old and new ring sizes are accepted.
-#define NINA_ADAPTIVE_RING_START_HEIGHT   15000ULL   // Activate after NINA Local fork
+#define NINA_ADAPTIVE_RING_START_HEIGHT   3ULL       // Active from v18 fork height
 #define NINA_RING_16_RCT_THRESHOLD        100000ULL  // Ring 11 → 16
 #define NINA_RING_21_RCT_THRESHOLD        500000ULL  // Ring 16 → 21
 #define NINA_RING_GRACE_OUTPUTS           5000ULL    // Transition window
 
-// ─── NINA v18 Active Ring Control (height ≥ 20000) ─────────────────────
+// ─── NINA v18 Active Ring Control (active from height 3) ───────────────
 // NINA transitions from passive observer to active ring controller.
 // Threat-level based dynamic ring sizing + intelligent decoy selection.
-#define NINA_V18_RING_ACTIVE_HEIGHT       20000ULL   // v18: NINA controls ring params
+#define NINA_V18_RING_ACTIVE_HEIGHT       3ULL       // Active from v18 fork height
 #define NINA_RING_THREAT_NORMAL_MIXIN     15         // Level 0: Ring 16
 #define NINA_RING_THREAT_ELEVATED_MIXIN   20         // Level 1: Ring 21
 #define NINA_RING_THREAT_HIGH_MIXIN       25         // Level 2: Ring 26
@@ -286,22 +334,23 @@
 #define NINA_RING_POISON_THRESHOLD        0.7f       // Poison score to exclude output
 #define NINA_RING_THREAT_ANALYSIS_WINDOW  100        // Blocks for sliding threat window
 
-#define HF_VERSION_ENFORCE_RCT                  6
-#define HF_VERSION_PER_BYTE_FEE                 8
-#define HF_VERSION_SMALLER_BP                   10
-#define HF_VERSION_LONG_TERM_BLOCK_WEIGHT       10
-#define HF_VERSION_MIN_2_OUTPUTS                12
-#define HF_VERSION_MIN_V2_COINBASE_TX           12
-#define HF_VERSION_SAME_MIXIN                   12
-#define HF_VERSION_REJECT_SIGS_IN_COINBASE      12
-#define HF_VERSION_ENFORCE_MIN_AGE              12
-#define HF_VERSION_EFFECTIVE_SHORT_TERM_MEDIAN_IN_PENALTY 12
-#define HF_VERSION_EXACT_COINBASE               13
-#define HF_VERSION_CLSAG                        13
-#define HF_VERSION_DETERMINISTIC_UNLOCK_TIME    13
-#define HF_VERSION_BULLETPROOF_PLUS             15
-#define HF_VERSION_VIEW_TAGS                    15
-#define HF_VERSION_2021_SCALING                 15
+#define HF_VERSION_ENFORCE_RCT                  1
+#define HF_VERSION_PER_BYTE_FEE                 1
+#define HF_VERSION_SMALLER_BP                   1
+#define HF_VERSION_LONG_TERM_BLOCK_WEIGHT       1
+#define HF_VERSION_MIN_2_OUTPUTS                1
+#define HF_VERSION_MIN_V2_COINBASE_TX           18  // v2 coinbase required from v18 (height 3); v1 blocks use v1 coinbase
+#define HF_VERSION_SAME_MIXIN                   1
+#define HF_VERSION_REJECT_SIGS_IN_COINBASE      1
+#define HF_VERSION_ENFORCE_MIN_AGE              1
+#define HF_VERSION_EFFECTIVE_SHORT_TERM_MEDIAN_IN_PENALTY 1
+#define HF_VERSION_EXACT_COINBASE               1
+#define HF_VERSION_CLSAG                        1
+#define HF_VERSION_DETERMINISTIC_UNLOCK_TIME    1
+#define HF_VERSION_BULLETPROOF_PLUS             1
+#define HF_VERSION_VIEW_TAGS                    1
+#define HF_VERSION_2021_SCALING                 1
+#define HF_VERSION_SHORT_UNLOCK_WINDOW          18  // Short coinbase unlock (60→30) activates at v18 (height 3)
 
 #define PER_KB_FEE_QUANTIZATION_DECIMALS        8
 #define CRYPTONOTE_SCALING_2021_FEE_ROUNDING_PLACES 2
@@ -332,7 +381,7 @@ namespace config
   // Align the default fallback fee with the fixed 0.01 NINA per kB schedule.
   uint64_t const DEFAULT_FEE_ATOMIC_NIA_PER_KB = 500; // Just a placeholder!  Change me!
   uint8_t const FEE_CALCULATION_MAX_RETRIES = 10;
-  uint64_t const DEFAULT_DUST_THRESHOLD = ((uint64_t)2000000000); // 2 * pow(10, 9)
+  uint64_t const DEFAULT_DUST_THRESHOLD = ((uint64_t)1000000000); // 0.001 NINA (calibrated for NINA economy)
   uint64_t const BASE_REWARD_CLAMP_THRESHOLD = ((uint64_t)100000000); // pow(10, 8)
 
   uint64_t const CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX = 118;

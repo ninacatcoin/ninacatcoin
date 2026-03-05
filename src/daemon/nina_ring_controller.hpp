@@ -30,6 +30,7 @@
 #include <mutex>
 #include "cryptonote_config.h"
 #include "misc_log_ex.h"
+#include "daemon/nina_decision_engine.hpp"
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
 #define ninacatcoin_DEFAULT_LOG_CATEGORY "nina_ring"
@@ -95,13 +96,23 @@ public:
      * Evaluate the required minimum mixin for a given block.
      * Only active when height >= NINA_V18_RING_ACTIVE_HEIGHT (20000).
      *
-     * @param height        Current block height
-     * @param num_rct       Total RCT outputs on-chain
-     * @param hf_version    Active hard fork version
+     * ARCHITECTURE: NINA DECIDES.
+     *   1. Collect all traffic metrics (outputs/tx, volume ramp, spend ratio)
+     *   2. Build NinaEvent(RING_THREAT_EVALUATION) with all data
+     *   3. NinaDecisionEngine::evaluate() → NINA LLM (temp=0.0) decides
+     *   4. If LLM unavailable → fallback with organic traffic detection
+     *   5. Apply hysteresis to prevent oscillation
+     *   6. Return mixin (never below legacy floor)
+     *
+     * @param height            Current block height
+     * @param num_rct           Total RCT outputs on-chain
+     * @param hf_version        Active hard fork version
      * @param outputs_last_100  New outputs created in the last 100 blocks
-     * @param spends_within_10  Outputs spent within 10 blocks of creation (last 100 blocks)
+     * @param spends_within_10  Outputs spent within 10 blocks of creation
      * @param hashrate_drop_pct Hashrate drop percentage vs 60-block avg (0-100)
-     * @param sybil_score   Sybil detection score from NINAMemorySystem (0.0-1.0)
+     * @param sybil_score       Sybil detection score from NINAMemorySystem (0.0-1.0)
+     * @param total_txs_last_100 Total transactions in the last 100 blocks
+     * @param prev_window_outputs Outputs in the previous 100-block window (for ramp detection)
      * @return              Required minimum mixin (NOT ring size; ring = mixin+1)
      */
     size_t evaluate_min_mixin(
@@ -111,7 +122,9 @@ public:
         uint64_t outputs_last_100,
         uint64_t spends_within_10,
         float    hashrate_drop_pct,
-        float    sybil_score)
+        float    sybil_score,
+        uint64_t total_txs_last_100 = 0,
+        uint64_t prev_window_outputs = 0)
     {
         std::lock_guard<std::mutex> lock(m_mutex);
 
@@ -120,19 +133,85 @@ public:
             return get_legacy_mixin(num_rct, hf_version);
         }
 
-        // ── v18+: active threat assessment ──
-        NinaThreatAssessment assessment = compute_threat(
-            height, num_rct, outputs_last_100, spends_within_10,
-            hashrate_drop_pct, sybil_score);
+        // ── Compute organic traffic metrics from sliding window ──
+        // If caller didn't provide txs_last_100, estimate from our own window
+        uint64_t txs = total_txs_last_100;
+        uint64_t prev_out = prev_window_outputs;
+        if (txs == 0 && !m_output_window.empty()) {
+            for (const auto& [h, entry] : m_output_window) {
+                txs += entry.total_txs;
+            }
+        }
+        if (prev_out == 0 && m_prev_window_outputs > 0) {
+            prev_out = m_prev_window_outputs;
+        }
 
-        NinaThreatLevel new_level = level_from_score(assessment.combined_threat());
+        // ── v18+: ASK NINA to evaluate the traffic pattern ──
+        NinaEvent event(NinaEventType::RING_THREAT_EVALUATION);
+        event.set("height", height);
+        event.set("num_rct_outputs", num_rct);
+        event.set("outputs_last_100", outputs_last_100);
+        event.set("txs_last_100", txs);
+        event.set("spends_within_10", spends_within_10);
+        event.set("prev_window_outputs", prev_out);
+        event.set("hashrate_drop_pct", static_cast<double>(hashrate_drop_pct));
+        event.set("sybil_score", static_cast<double>(sybil_score));
+
+        // Compute outputs_per_tx for the prompt (so LLM has the insight)
+        float outputs_per_tx = (txs > 0)
+            ? static_cast<float>(outputs_last_100) / static_cast<float>(txs)
+            : 0.0f;
+        float volume_ramp = (prev_out > 0)
+            ? static_cast<float>(outputs_last_100) / static_cast<float>(prev_out)
+            : 1.0f;
+        float spend_ratio = (outputs_last_100 > 0)
+            ? static_cast<float>(spends_within_10) / static_cast<float>(outputs_last_100)
+            : 0.0f;
+        event.set("outputs_per_tx", static_cast<double>(outputs_per_tx));
+        event.set("volume_ramp", static_cast<double>(volume_ramp));
+        event.set("spend_ratio", static_cast<double>(spend_ratio));
+
+        // \u2500\u2500 NINA DECIDES \u2500\u2500
+        auto actions = NinaDecisionEngine::getInstance().evaluate(event);
+
+        NinaThreatLevel new_level = THREAT_NORMAL;  // default
+        bool nina_decided = false;
+
+        for (const auto& action : actions) {
+            if (action.type == NinaActionType::ADJUST_RING_THREAT) {
+                uint8_t tl = 0;
+                try { tl = static_cast<uint8_t>(std::stoi(action.get_param("threat_level", "0"))); }
+                catch (...) {}
+                if (tl > 3) tl = 3;
+                new_level = static_cast<NinaThreatLevel>(tl);
+                nina_decided = true;
+
+                MINFO("[NINA-RING] NINA decided threat=" << threat_level_name(new_level)
+                      << " confidence=" << action.confidence
+                      << " organic=" << action.get_param("is_organic", "unknown")
+                      << " reason: " << action.reasoning);
+
+                NinaDecisionEngine::getInstance().record_action_executed(NinaActionType::ADJUST_RING_THREAT);
+                break;
+            }
+        }
+
+        if (!nina_decided) {
+            // NINA returned no ring action — use old assessment as safety net
+            NinaThreatAssessment assessment = compute_threat(
+                height, num_rct, outputs_last_100, spends_within_10,
+                hashrate_drop_pct, sybil_score);
+            new_level = level_from_score(assessment.combined_threat());
+            m_last_assessment = assessment;
+            MINFO("[NINA-RING] No NINA ring decision — using legacy assessment, threat="
+                  << threat_level_name(new_level));
+        }
 
         // Hysteresis: require sustained threat before escalating
         new_level = apply_hysteresis(height, new_level);
 
         // Record the decision
         m_current_level = new_level;
-        m_last_assessment = assessment;
 
         size_t mixin = mixin_for_level(new_level);
 
@@ -143,15 +222,12 @@ public:
         m_last_decision.height         = height;
         m_last_decision.threat_level   = static_cast<uint8_t>(new_level);
         m_last_decision.min_ring_size  = static_cast<uint16_t>(mixin + 1);
-        m_last_decision.assessment     = assessment;
 
         if (new_level > THREAT_NORMAL) {
             MINFO("[NINA-RING] Height " << height
                   << " threat=" << threat_level_name(new_level)
                   << " min_ring=" << (mixin + 1)
-                  << " poison=" << assessment.output_poisoning_score
-                  << " temporal=" << assessment.temporal_attack_score
-                  << " sybil=" << assessment.sybil_peer_score);
+                  << " decided_by=" << (nina_decided ? "NINA_LLM" : "LEGACY_FALLBACK"));
         }
 
         return mixin;
@@ -223,9 +299,15 @@ public:
 
         // Prune entries older than analysis window
         if (m_output_window.size() > NINA_RING_THREAT_ANALYSIS_WINDOW + 20) {
+            // Before pruning, snapshot the outgoing window as "previous" for ramp detection
+            uint64_t prune_outputs = 0;
             auto it = m_output_window.begin();
-            while (it != m_output_window.end() && it->first + NINA_RING_THREAT_ANALYSIS_WINDOW + 20 < height)
+            while (it != m_output_window.end() && it->first + NINA_RING_THREAT_ANALYSIS_WINDOW + 20 < height) {
+                prune_outputs += it->second.new_outputs;
                 it = m_output_window.erase(it);
+            }
+            if (prune_outputs > 0)
+                m_prev_window_outputs = prune_outputs;
         }
     }
 
@@ -244,6 +326,7 @@ private:
     uint64_t m_last_level_change_height   = 0;
     uint64_t m_sustained_higher_count     = 0;  // consecutive blocks at higher level
     uint64_t m_sustained_lower_count      = 0;  // consecutive blocks at lower level
+    uint64_t m_prev_window_outputs        = 0;  // outputs in previous 100-block window
 
     std::map<uint64_t, OutputWindowEntry> m_output_window;
 

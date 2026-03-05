@@ -52,6 +52,7 @@
 #include "ai/ai_auto_updater.hpp"
 #include "daemon/nina_persistent_memory.hpp"
 #include "daemon/nina_llm_engine.hpp"
+#include "daemon/nina_decision_engine.hpp"
 #include "daemon/nina_learning_module.hpp"
 #include "daemon/nina_network_health_monitor.hpp"
 #include "net/network_throttle-detail.hpp"
@@ -504,6 +505,40 @@ namespace cryptonote
       if (is_inital && m_synchronized) {
         try {
           request_nina_state_from_peer(context);
+
+          // ═══════════════════════════════════════════════════════════════
+          // NINA DECISION: A new peer connected. Should we help them?
+          // Instead of hardcoded if/then, NINA evaluates the situation.
+          // ═══════════════════════════════════════════════════════════════
+          const auto& our_checkpoints = m_core.get_checkpoints();
+          uint32_t our_groups = our_checkpoints.get_local_checkpoint_state().dat_num_groups;
+
+          ninacatcoin_ai::NinaEvent event(ninacatcoin_ai::NinaEventType::NEW_PEER_CONNECTED);
+          event.set("our_height", m_core.get_current_blockchain_height());
+          event.set("peer_height", hshd.current_height);
+          event.set("our_checkpoint_groups", static_cast<uint64_t>(our_groups));
+          event.set("peer_checkpoint_height", static_cast<uint64_t>(0)); // Unknown yet — state sync will tell us
+          event.set("model_match", "true"); // Assume match until proven otherwise
+
+          auto actions = ninacatcoin_ai::NinaDecisionEngine::getInstance().evaluate(event);
+
+          // Dispatch NINA's decisions
+          for (const auto& action : actions) {
+            switch (action.type) {
+              case ninacatcoin_ai::NinaActionType::SEND_CHECKPOINTS_TO_PEER:
+                MINFO("[NINA-DECISION] → Sending checkpoints to new peer (confidence=" 
+                      << action.confidence << "): " << action.reasoning);
+                send_checkpoint_data_to_peer(context);
+                break;
+              case ninacatcoin_ai::NinaActionType::MONITOR_PEER:
+                MINFO("[NINA-DECISION] → Monitoring new peer: " << action.reasoning);
+                break;
+              default:
+                MDEBUG("[NINA-DECISION] → Action " << static_cast<int>(action.type) 
+                       << ": " << action.reasoning);
+                break;
+            }
+          }
         } catch (...) {}
       }
 
@@ -547,6 +582,91 @@ namespace cryptonote
         m_sync_bad_spans_downloaded = 0;
         m_sync_download_chain_size = 0;
         m_sync_download_objects_size = 0;
+
+        // ═══════════════════════════════════════════════════════════════
+        // 🐱 NINA IA: Detect initial blockchain download (fresh node)
+        // If our local blockchain height is very low and we're syncing
+        // thousands of blocks, this is a NEW node downloading from scratch.
+        // NINA must request checkpoints from peers IMMEDIATELY to protect
+        // this node from accepting a poisoned blockchain.
+        // ═══════════════════════════════════════════════════════════════
+        uint64_t our_height = m_core.get_current_blockchain_height();
+        uint64_t peer_height = hshd.current_height;
+        if (our_height < 100 && peer_height > 1000) // Fresh node downloading from scratch
+        {
+          try {
+            MINFO("[NINA-IA] 🐱 ═══════════════════════════════════════════════════");
+            MINFO("[NINA-IA] 🐱 INITIAL BLOCKCHAIN DOWNLOAD DETECTED!");
+            MINFO("[NINA-IA] 🐱   Our height: " << our_height << ", Peer height: " << peer_height);
+            MINFO("[NINA-IA] 🐱   This node is UNPROTECTED — requesting checkpoints NOW");
+            MINFO("[NINA-IA] 🐱 ═══════════════════════════════════════════════════");
+
+            const auto& our_checkpoints = m_core.get_checkpoints();
+            bool have_json = !our_checkpoints.get_local_checkpoint_state().json_integrity_hash.empty();
+            bool have_dat  = (our_checkpoints.get_local_checkpoint_state().dat_num_groups > 0);
+
+            ninacatcoin_ai::NinaEvent event(ninacatcoin_ai::NinaEventType::INITIAL_BLOCKCHAIN_DOWNLOAD);
+            event.set("our_height", our_height);
+            event.set("target_height", peer_height);
+            event.set("have_json_checkpoints", have_json);
+            event.set("have_dat_checkpoints", have_dat);
+            event.set("peers_connected", static_cast<uint64_t>(m_p2p->get_public_connections_count()));
+
+            auto actions = ninacatcoin_ai::NinaDecisionEngine::getInstance().evaluate(event);
+
+            for (const auto& action : actions) {
+              switch (action.type) {
+                case ninacatcoin_ai::NinaActionType::REQUEST_CHECKPOINTS:
+                {
+                  MINFO("[NINA-IA] 🐱 → Requesting checkpoints from peers: " << action.reasoning);
+                  // CRITICAL: Send DIRECTLY to the current peer first!
+                  // During handshake, for_each_connection wont find peers in state_normal yet.
+                  {
+                    NOTIFY_REQUEST_NINA_STATE::request req{};
+                    auto summary = daemonize::get_nina_state_summary();
+                    req.requester_nina_height = summary.last_height;
+                    req.requester_block_records = summary.block_records;
+                    req.timestamp = static_cast<uint64_t>(std::time(nullptr));
+                    req.need_checkpoint_data = true;
+                    try {
+                      post_notify<NOTIFY_REQUEST_NINA_STATE>(req, context);
+                    } catch (const boost::bad_weak_ptr&) {
+                      MWARNING("[NINA-IA] Connection lost (bad_weak_ptr) during checkpoint request");
+                    }
+                    MINFO("[NINA-IA] 🐱   Sent checkpoint request DIRECTLY to handshake peer " << context.m_remote_address.str());
+                  }
+
+                  // Also request from any OTHER already-connected peers
+                  m_p2p->for_each_connection([&](cryptonote_connection_context& ctx,
+                      nodetool::peerid_type pid, uint32_t flags) -> bool {
+                    if (&ctx != &context &&
+                        (ctx.m_state == cryptonote_connection_context::state_normal ||
+                         ctx.m_state == cryptonote_connection_context::state_synchronizing)) {
+                      NOTIFY_REQUEST_NINA_STATE::request req{};
+                      auto summary = daemonize::get_nina_state_summary();
+                      req.requester_nina_height = summary.last_height;
+                      req.requester_block_records = summary.block_records;
+                      req.timestamp = static_cast<uint64_t>(std::time(nullptr));
+                      req.need_checkpoint_data = true;
+                      post_notify<NOTIFY_REQUEST_NINA_STATE>(req, ctx);
+                      MINFO("[NINA-IA] 🐱   Sent checkpoint request to peer " << ctx.m_remote_address.str());
+                    }
+                    return true; // Continue to ALL peers
+                  });
+                  break;
+                }
+                case ninacatcoin_ai::NinaActionType::BROADCAST_STATE:
+                  MINFO("[NINA-IA] 🐱 → Broadcasting as new node: " << action.reasoning);
+                  break;
+                default:
+                  MDEBUG("[NINA-IA] → Action " << static_cast<int>(action.type) << ": " << action.reasoning);
+                  break;
+              }
+            }
+          } catch (const std::exception& e) {
+            MWARNING("[NINA-IA] Error in initial download detection: " << e.what());
+          } catch (...) {}
+        }
       }
     m_core.set_target_blockchain_height((hshd.current_height));
     }
@@ -1096,10 +1216,7 @@ namespace cryptonote
 
       // Save to nina_state directory for ML server to pick up
       try {
-        const char* home = std::getenv("HOME");
-        if (!home) home = std::getenv("USERPROFILE");
-        if (home) {
-          std::string model_dir = std::string(home) + "/.ninacatcoin/nina_shared_models/";
+        std::string model_dir = m_core.get_config_folder() + "/nina_shared_models/";
           // Create directory if needed
           std::filesystem::create_directories(model_dir);
 
@@ -1123,7 +1240,6 @@ namespace cryptonote
             }
             MINFO("[NINA-MODEL] Saved to " << model_path);
           }
-        }
       } catch (const std::exception& e) {
         MWARNING("[NINA-MODEL] Failed to save model: " << e.what());
       }
@@ -1342,30 +1458,54 @@ namespace cryptonote
     try {
       auto summary = daemonize::get_nina_state_summary();
 
-      // Only respond if we have more data than the requester
-      if (summary.last_height <= arg.requester_nina_height &&
-          summary.block_records <= arg.requester_block_records) {
-        MINFO("[NINA-PULL] We don't have more data than requester, skipping");
-        return 1;
+      // ═══════════════════════════════════════════════════════════════
+      // NINA PRIORITY: If peer needs checkpoint data, ALWAYS process it
+      // BEFORE checking if we have more NINA state data.
+      // A fresh node's survival depends on getting checkpoints ASAP.
+      // ═══════════════════════════════════════════════════════════════
+      if (arg.need_checkpoint_data) {
+        MINFO("[NINA-PULL] Peer requests FULL CHECKPOINT DATA (need_checkpoint_data=true)");
+
+        ninacatcoin_ai::NinaEvent event(ninacatcoin_ai::NinaEventType::CHECKPOINT_REQUEST);
+        const auto& our_checkpoints = m_core.get_checkpoints();
+        event.set("our_checkpoint_groups", 
+                   static_cast<uint64_t>(our_checkpoints.get_local_checkpoint_state().dat_num_groups));
+        event.set("peer_height", arg.requester_nina_height);
+        event.set("model_match", "true");  // Can't verify until we check their hash
+
+        auto actions = ninacatcoin_ai::NinaDecisionEngine::getInstance().evaluate(event);
+
+        for (const auto& action : actions) {
+          if (action.type == ninacatcoin_ai::NinaActionType::SEND_CHECKPOINTS_TO_PEER) {
+            MINFO("[NINA-DECISION] → Sending checkpoint data to requesting peer (confidence="
+                  << action.confidence << "): " << action.reasoning);
+            send_checkpoint_data_to_peer(context);
+            break;
+          }
+        }
       }
 
-      // Send incremental state from their height
-      std::string state_data = daemonize::export_nina_state_incremental(arg.requester_nina_height);
-      if (state_data.empty())
-        return 1;
+      // Now handle incremental NINA state sync (only if we have more data)
+      if (summary.last_height > arg.requester_nina_height ||
+          summary.block_records > arg.requester_block_records) {
+        std::string state_data = daemonize::export_nina_state_incremental(arg.requester_nina_height);
+        if (!state_data.empty()) {
+          NOTIFY_NINA_STATE_SYNC::request reply{};
+          reply.sender_height = m_core.get_current_blockchain_height();
+          reply.nina_last_height = summary.last_height;
+          reply.nina_block_records = summary.block_records;
+          reply.nina_session_count = summary.session_count;
+          reply.timestamp = static_cast<uint64_t>(std::time(nullptr));
+          reply.state_data = std::move(state_data);
+          reply.state_hash = "";
+          reply.hops = 0;
+          post_notify<NOTIFY_NINA_STATE_SYNC>(reply, context);
+          MINFO("[NINA-PULL] Sent state response to peer (our height=" << summary.last_height << ")");
+        }
+      } else {
+        MINFO("[NINA-PULL] No additional NINA state data for requester");
+      }
 
-      NOTIFY_NINA_STATE_SYNC::request reply{};
-      reply.sender_height = m_core.get_current_blockchain_height();
-      reply.nina_last_height = summary.last_height;
-      reply.nina_block_records = summary.block_records;
-      reply.nina_session_count = summary.session_count;
-      reply.timestamp = static_cast<uint64_t>(std::time(nullptr));
-      reply.state_data = std::move(state_data);
-      reply.state_hash = "";
-      reply.hops = 0;  // Direct response, no further relay
-
-      post_notify<NOTIFY_NINA_STATE_SYNC>(reply, context);
-      MINFO("[NINA-PULL] Sent state response to peer (our height=" << summary.last_height << ")");
     } catch (const std::exception& e) {
       MWARNING("[NINA-PULL] Error handling request: " << e.what());
     }
@@ -1385,12 +1525,159 @@ namespace cryptonote
       req.requester_block_records = summary.block_records;
       req.timestamp = static_cast<uint64_t>(std::time(nullptr));
 
+      // NINA checks: do we need checkpoint files?
+      // If we don't have local checkpoints, tell the peer we need them.
+      const auto& checkpoints = m_core.get_checkpoints();
+      req.need_checkpoint_data = checkpoints.needs_full_checkpoint_sync();
+      if (req.need_checkpoint_data) {
+        MINFO("[NINA-PULL] We need checkpoint files — setting need_checkpoint_data=true");
+      }
+
       post_notify<NOTIFY_REQUEST_NINA_STATE>(req, context);
       MINFO("[NINA-PULL] Requested NINA state from peer (our height=" << summary.last_height
-            << ", records=" << summary.block_records << ")");
+            << ", records=" << summary.block_records 
+            << ", need_checkpoints=" << (req.need_checkpoint_data ? "YES" : "no") << ")");
       return true;
     } catch (const std::exception& e) {
       MWARNING("[NINA-PULL] Error requesting state: " << e.what());
+      return false;
+    }
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA Decision Engine: Handle incoming checkpoint data from peer
+  // This is the missing link — the NOTIFY_NINA_CHECKPOINT_DATA handler.
+  // When a peer sends us full checkpoint files (JSON + DAT), NINA validates
+  // and saves them. This protects new nodes from moment 0.
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  int t_cryptonote_protocol_handler<t_core>::handle_notify_nina_checkpoint_data(
+    int command, NOTIFY_NINA_CHECKPOINT_DATA::request& arg, cryptonote_connection_context& context)
+  {
+    MINFO("[NINA-CHECKPOINT] ══════════════════════════════════════════════");
+    MINFO("[NINA-CHECKPOINT] Received checkpoint data from peer");
+    MINFO("[NINA-CHECKPOINT]   Checkpoint height: " << arg.checkpoint_height);
+    MINFO("[NINA-CHECKPOINT]   JSON: " << arg.json_data.size() << " bytes, "
+          << arg.json_checkpoint_count << " checkpoints");
+    MINFO("[NINA-CHECKPOINT]   DAT:  " << arg.dat_data_size << " bytes, "
+          << arg.dat_num_groups << " groups (base64: " << arg.dat_data_b64.size() << " chars)");
+    MINFO("[NINA-CHECKPOINT]   Sender height: " << arg.sender_height);
+    MINFO("[NINA-CHECKPOINT]   Network: " << arg.network);
+    MINFO("[NINA-CHECKPOINT]   Hops: " << static_cast<int>(arg.hops));
+    MINFO("[NINA-CHECKPOINT] ══════════════════════════════════════════════");
+
+    try {
+      // Hop limit check — only accept from direct peers (hops <= 2)
+      if (arg.hops > NINA_P2P_CHECKPOINT_MAX_HOPS) {
+        MWARNING("[NINA-CHECKPOINT] Rejecting: too many hops (" << static_cast<int>(arg.hops) << ")");
+        return 1;
+      }
+
+      // Basic sanity checks
+      if (arg.json_data.empty() && arg.dat_data_b64.empty()) {
+        MWARNING("[NINA-CHECKPOINT] Rejecting: empty checkpoint data");
+        return 1;
+      }
+
+      // Get data directory
+      std::string data_dir = m_core.get_config_folder();
+
+      // Get peer identifier for reputation tracking
+      std::string peer_id = context.m_remote_address.str();
+
+      // Delegate to checkpoints class — it handles SHA-256 verification,
+      // NINA model identity check, base64 decoding, format validation,
+      // disk save, and memory reload. ALL the security is in there.
+      auto& checkpoints = m_core.get_mutable_checkpoints();
+      bool ok = checkpoints.handle_incoming_checkpoint_data(
+        peer_id,
+        arg.json_data,
+        arg.json_integrity_hash,
+        arg.dat_data_b64,
+        arg.dat_integrity_hash,
+        arg.dat_data_size,
+        arg.nina_model_hash,
+        data_dir);
+
+      if (ok) {
+        MINFO("[NINA-CHECKPOINT] ✓ Checkpoint data accepted and saved!");
+        MINFO("[NINA-CHECKPOINT]   This node is now protected by P2P checkpoints");
+
+        // NINA records this successful action
+        ninacatcoin_ai::NinaDecisionEngine::getInstance().record_action_executed(
+          ninacatcoin_ai::NinaActionType::REQUEST_CHECKPOINTS);
+      } else {
+        MWARNING("[NINA-CHECKPOINT] ✗ Checkpoint data REJECTED by validation");
+      }
+    } catch (const std::exception& e) {
+      MERROR("[NINA-CHECKPOINT] Exception: " << e.what());
+    }
+
+    return 1;
+  }
+  //------------------------------------------------------------------------------------------------------------------------
+  // NINA Decision Engine: Send our checkpoint files to a specific peer
+  // Called when NINA decides SEND_CHECKPOINTS_TO_PEER for a new/unprotected node.
+  //------------------------------------------------------------------------------------------------------------------------
+  template<class t_core>
+  bool t_cryptonote_protocol_handler<t_core>::send_checkpoint_data_to_peer(
+    cryptonote_connection_context& context)
+  {
+    try {
+      std::string data_dir = m_core.get_config_folder();
+
+      // Prepare checkpoint data from our local files
+      const auto& checkpoints = m_core.get_checkpoints();
+      std::string json_data, json_hash, dat_b64, dat_hash;
+      uint32_t dat_size = 0, dat_num_groups = 0, json_count = 0;
+
+      bool prepared = checkpoints.prepare_checkpoint_data_for_peer(
+        data_dir, json_data, json_hash, dat_b64, dat_hash,
+        dat_size, dat_num_groups, json_count);
+
+      if (!prepared || json_data.empty()) {
+        MINFO("[NINA-SEND] Cannot prepare checkpoint data — we don't have local files yet");
+        return false;
+      }
+
+      // Build the P2P message
+      NOTIFY_NINA_CHECKPOINT_DATA::request msg{};
+      msg.checkpoint_height = checkpoints.get_max_height();
+      msg.generation_timestamp = static_cast<uint64_t>(std::time(nullptr));
+      msg.generation_cycle = 0;
+      msg.network = "mainnet";
+
+      msg.json_data = std::move(json_data);
+      msg.json_integrity_hash = std::move(json_hash);
+      msg.json_checkpoint_count = json_count;
+
+      msg.dat_data_b64 = std::move(dat_b64);
+      msg.dat_integrity_hash = std::move(dat_hash);
+      msg.dat_num_groups = dat_num_groups;
+      msg.dat_data_size = dat_size;
+
+      msg.sender_height = m_core.get_current_blockchain_height();
+      msg.nina_model_hash = checkpoints.get_nina_model_hash();
+      msg.hops = 0;  // Direct transfer, no relay
+
+      try {
+        post_notify<NOTIFY_NINA_CHECKPOINT_DATA>(msg, context);
+      } catch (const boost::bad_weak_ptr&) {
+        MWARNING("[NINA-SEND] Connection lost (bad_weak_ptr) - peer disconnected before checkpoint delivery");
+        return false;
+      }
+
+      MINFO("[NINA-SEND] ✓ Sent checkpoint data to peer:");
+      MINFO("[NINA-SEND]   JSON: " << msg.json_checkpoint_count << " checkpoints");
+      MINFO("[NINA-SEND]   DAT:  " << msg.dat_data_size << " bytes, " << msg.dat_num_groups << " groups");
+      MINFO("[NINA-SEND]   NINA decided to protect this peer");
+
+      // Record the action
+      ninacatcoin_ai::NinaDecisionEngine::getInstance().record_action_executed(
+        ninacatcoin_ai::NinaActionType::SEND_CHECKPOINTS_TO_PEER);
+
+      return true;
+    } catch (const std::exception& e) {
+      MWARNING("[NINA-SEND] Error sending checkpoint data: " << e.what());
       return false;
     }
   }
@@ -3066,6 +3353,115 @@ skip:
         return false;
       });
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    // 🐱 NINA IA DECISION: We just finished syncing. What should we do?
+    // NINA evaluates the situation and decides: generate checkpoints?
+    // Request checkpoints from peers if we don't have them?
+    // Validate the blockchain if we received checkpoints from peers?
+    // ═══════════════════════════════════════════════════════════════
+    try {
+      const auto& our_checkpoints = m_core.get_checkpoints();
+      bool need_checkpoints = our_checkpoints.needs_full_checkpoint_sync();
+      uint32_t our_groups = our_checkpoints.get_local_checkpoint_state().dat_num_groups;
+      bool have_json = !our_checkpoints.get_local_checkpoint_state().json_integrity_hash.empty();
+      bool have_dat = (our_groups > 0);
+      // If we have BOTH types of checkpoints, we can validate:
+      bool have_peer_checkpoints = have_json && have_dat;
+
+      ninacatcoin_ai::NinaEvent event(ninacatcoin_ai::NinaEventType::OWN_SYNC_COMPLETED);
+      event.set("our_height", m_core.get_current_blockchain_height());
+      event.set("our_checkpoint_groups", static_cast<uint64_t>(our_groups));
+      event.set("need_checkpoints", need_checkpoints);
+      event.set("have_json_checkpoints", have_json);
+      event.set("have_dat_checkpoints", have_dat);
+      event.set("have_peer_checkpoints", have_peer_checkpoints);
+
+      MINFO("[NINA-IA] 🐱 Post-sync evaluation: height=" << m_core.get_current_blockchain_height()
+            << ", groups=" << our_groups << ", need_cp=" << need_checkpoints
+            << ", have_json=" << have_json << ", have_dat=" << have_dat);
+
+      auto actions = ninacatcoin_ai::NinaDecisionEngine::getInstance().evaluate(event);
+
+      for (const auto& action : actions) {
+        switch (action.type) {
+          case ninacatcoin_ai::NinaActionType::REQUEST_CHECKPOINTS:
+          {
+            MINFO("[NINA-IA] 🐱 → Requesting checkpoints from peers after sync (confidence="
+                  << action.confidence << "): " << action.reasoning);
+            // Request from ALL suitable peers for maximum coverage
+            m_p2p->for_each_connection([&](cryptonote_connection_context& ctx,
+                nodetool::peerid_type pid, uint32_t flags) -> bool {
+              if (ctx.m_state == cryptonote_connection_context::state_normal) {
+                NOTIFY_REQUEST_NINA_STATE::request req{};
+                auto summary = daemonize::get_nina_state_summary();
+                req.requester_nina_height = summary.last_height;
+                req.requester_block_records = summary.block_records;
+                req.timestamp = static_cast<uint64_t>(std::time(nullptr));
+                req.need_checkpoint_data = true;  // NINA requests BOTH types
+                post_notify<NOTIFY_REQUEST_NINA_STATE>(req, ctx);
+                MINFO("[NINA-IA] 🐱   Sent checkpoint request to peer " << ctx.m_remote_address.str());
+                return false;  // Stop after first suitable peer
+              }
+              return true;
+            });
+            break;
+          }
+          case ninacatcoin_ai::NinaActionType::VALIDATE_BLOCKCHAIN_AGAINST_CHECKPOINTS:
+          {
+            // 🐱 NINA's most critical security action: validate the ENTIRE
+            // downloaded blockchain against both types of checkpoints.
+            // This catches poisoned blockchains, tampered chains, and replay attacks.
+            MINFO("[NINA-IA] 🐱 ═══════════════════════════════════════════════════════");
+            MINFO("[NINA-IA] 🐱 BLOCKCHAIN VALIDATION STARTING");
+            MINFO("[NINA-IA] 🐱   Validating entire chain against " << our_groups << " DAT groups");
+            MINFO("[NINA-IA] 🐱   and JSON checkpoints. This protects against poisoned chains.");
+            MINFO("[NINA-IA] 🐱 ═══════════════════════════════════════════════════════");
+
+            auto& mutable_checkpoints = m_core.get_mutable_checkpoints();
+            bool validation_ok = mutable_checkpoints.validate_blockchain_against_all_checkpoints(
+                m_core.get_current_blockchain_height(), &m_core.get_blockchain_storage().get_db(), m_core.get_config_folder());
+
+            if (validation_ok)
+            {
+              MINFO("[NINA-IA] 🐱 ✅ BLOCKCHAIN VALIDATION PASSED!");
+              MINFO("[NINA-IA] 🐱   All blocks match both checkpoint types.");
+              MINFO("[NINA-IA] 🐱   This node is FULLY PROTECTED from block 0.");
+            }
+            else
+            {
+              MWARNING("[NINA-IA] 🐱 ❌ BLOCKCHAIN VALIDATION FAILED!");
+              MWARNING("[NINA-IA] 🐱   One or more blocks do NOT match checkpoints!");
+              MWARNING("[NINA-IA] 🐱   The downloaded blockchain may be CORRUPTED or POISONED.");
+              MWARNING("[NINA-IA] 🐱   NINA is alerting the network.");
+
+              // Trigger ALERT_NETWORK — inform peers about potential chain poisoning
+              ninacatcoin_ai::NinaEvent alert_event(ninacatcoin_ai::NinaEventType::ANOMALY_DETECTED);
+              alert_event.set("anomaly_type", "blockchain_checkpoint_validation_failed");
+              alert_event.set("our_height", m_core.get_current_blockchain_height());
+              alert_event.set("checkpoint_groups_checked", static_cast<uint64_t>(our_groups));
+              ninacatcoin_ai::NinaDecisionEngine::getInstance().evaluate(alert_event);
+            }
+            break;
+          }
+          case ninacatcoin_ai::NinaActionType::GENERATE_CHECKPOINTS:
+            MINFO("[NINA-IA] 🐱 → Generating local checkpoints: " << action.reasoning);
+            // The hourly cycle will do this, but we trigger it now
+            m_core.run_nina_checkpoint_cycle();
+            break;
+          case ninacatcoin_ai::NinaActionType::BROADCAST_STATE:
+            MINFO("[NINA-IA] 🐱 → Broadcasting state: " << action.reasoning);
+            // Already done above, but NINA confirms it was the right call
+            break;
+          default:
+            MDEBUG("[NINA-IA] → Post-sync action " << static_cast<int>(action.type)
+                   << ": " << action.reasoning);
+            break;
+        }
+      }
+    } catch (const std::exception& e) {
+      MWARNING("[NINA-IA] Error in post-sync evaluation: " << e.what());
+    } catch (...) {}
 
     return true;
   }

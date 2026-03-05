@@ -567,6 +567,28 @@ namespace cryptonote
      */
     bool load_checkpoints_p2p_first(const std::string& data_dir, network_type nettype, BlockchainDB* db);
 
+    /**
+     * @brief 🐱 NINA IA: Validate the ENTIRE blockchain against both checkpoint types
+     *
+     * This is NINA's most critical security function. When a fresh node finishes
+     * downloading the blockchain AND has received checkpoints from peers, NINA
+     * validates EVERY checkpoint block against the downloaded chain.
+     *
+     * Type 1 (JSON checkpoints / m_points): Verifies block hashes at every 30-block
+     * interval match the checkpoint hashes received from trusted peers.
+     *
+     * Type 2 (DAT / hash-of-hashes): Verifies 512-block groups by computing
+     * cn_fast_hash of concatenated block hashes and comparing against the .dat file.
+     *
+     * If ANY block fails validation, the blockchain is considered COMPROMISED and
+     * NINA will alert the network.
+     *
+     * @param blockchain_height Current blockchain height
+     * @param db Pointer to BlockchainDB for reading block hashes
+     * @return true if ALL checkpoints pass validation, false if ANY fails
+     */
+    bool validate_blockchain_against_all_checkpoints(uint64_t blockchain_height, BlockchainDB* db, const std::string& data_dir = "");
+
   private:
     std::map<uint64_t, crypto::hash> m_points; //!< the checkpoints container
     std::map<uint64_t, difficulty_type> m_difficulty_points; //!< the difficulty checkpoints container

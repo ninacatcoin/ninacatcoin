@@ -38,6 +38,11 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define RANDOMX_ARGON_LANES        1
 
 //Argon2d salt
+//NOTE: NinaCatCoin keeps "RandomX\x03" for xmrig compatibility with standard xmrig.
+//When Monero upgrades to RandomX v2 (sech1/tevador/hyc_symas, planned 2026),
+//NinaCatCoin will evaluate adopting v2 with a custom salt ("NinaCat\x03" or similar)
+//via coordinated hard fork + custom xmrig-ninacatcoin release.
+//Bot miners with Monero wallets are already rejected by address prefix validation (118/119/142).
 #define RANDOMX_ARGON_SALT         "RandomX\x03"
 
 //Number of random Cache accesses per Dataset item. Minimum is 2.

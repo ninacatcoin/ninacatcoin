@@ -89,7 +89,10 @@ enum class AnalysisType {
     GOVERNANCE_JUSTIFY,     // Justify governance proposals
     ADAPTIVE_INSIGHT,       // Generate insights from learned patterns
     HUMAN_ESCALATION,       // Generate clear escalation descriptions
-    MEMPOOL_ANALYSIS        // Analyze mempool patterns and spam
+    MEMPOOL_ANALYSIS,       // Analyze mempool patterns and spam
+
+    // ═══ NINA Decision Engine — NINA makes REAL decisions ═══
+    DECISION                // Evaluate a network event and decide actions (temp=0.0)
 };
 
 struct AnalysisRequest {
@@ -487,6 +490,10 @@ private:
 
     // Fallback when LLM unavailable
     AnalysisResult make_fallback_result(const AnalysisRequest& request);
+
+    // Deterministic inference for DECISION type (temp=0.0, greedy sampling)
+    // Creates a temporary greedy sampler so decisions are reproducible across nodes
+    std::string run_inference_deterministic(const std::string& prompt);
 
     // State
     LLMConfig m_config;

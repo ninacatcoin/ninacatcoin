@@ -9,7 +9,7 @@
 **Ninacatcoin** nace del código de **Monero**, uno de los proyectos de criptomoneda más respetados en privacidad y descentralización. Al igual que Monero se basó en CryptoNote, Ninacatcoin utiliza la arquitectura sólida y probada de Monero como base, implementando mejoras fundamentales en:
 
 - **Seguridad anti-51%:** Checkpoints automáticos cada 60 minutos vs manual en Monero
-- **Fairness de minería:** RandomX + GPU penalty 4x para evitar monopolios
+- **Fairness de minería:** RandomX optimizado con epochs cortos para accesibilidad CPU universal
 - **Emisión transparente:** Eventos X2 y X200 de alta entropía con mecanismos anti-manipulación
 - **Descentralización real:** Sin intervención manual en procesos críticos
 
@@ -77,7 +77,7 @@ Energía positiva constante →  X2 ocurre 183 veces/año (¡casi diario!)
 **Código del Sistema X2 y X200** (en `src/cryptonote_basic/cryptonote_basic_impl.cpp`):
 
 ```cpp
-// NINACATCOIN DUAL-MODE RANDOMX MINING + EVENTO MULTIPLIERS
+// NINACATCOIN EVENTO MULTIPLIERS
 if (height > 0) {
     // Genera evento aleatorio con alta entropía
     uint64_t random_event = get_high_entropy_event(height);
@@ -224,7 +224,7 @@ Ninacatcoin honra esto permitiendo que el protocolo mismo sea generoso de forma 
 
 2. **Significado Humano:** Nina vivió desde 2014 hasta 2019. Su muerte inspiró la creación de Ninacatcoin como forma de:
    - Crear algo "que se defienda solo" (autoprotección mediante blockchain)
-   - Crear algo "justo" (mining justo con RandomX + GPU penalty, sin manipulación)
+   - Crear algo "justo" (mining justo con RandomX accesible a cualquier CPU, sin manipulación)
    - Crear algo "generoso" (X2 y X200: eventos de bonificación inesperada)
    - Honrar su memoria de manera permanente en el corazón del protocolo
 
@@ -1740,9 +1740,9 @@ ninacatcoin utiliza **RandomX mejorado** con un enfoque revolucionario en arquit
 
 #### 9.1 Sistema de Minería RandomX Mejorado
 
-RandomX es el algoritmo de Proof-of-Work (PoW) criptográfico que subyace a ninacatcoin. A diferencia del RandomX original de Monero, ninacatcoin implementa tres mejoras complementarias que modifican fundamentalmente los incentivos económicos de minería:
+RandomX es el algoritmo de Proof-of-Work (PoW) criptográfico que subyace a ninacatcoin. A diferencia del RandomX original de Monero, ninacatcoin implementa una mejora clave que modifica fundamentalmente la resistencia a hardware especializado:
 
-**Mejora 1: Epochs Más Cortos (Opción 1)**
+**Epochs Más Cortos**
 
 La semilla criptográfica que controla la generación de código RandomX cambia cada 1,024 bloques (~34 horas) en lugar de cada 2,048 bloques (~68 horas) como en Monero:
 
@@ -1758,87 +1758,61 @@ Configuración ninacatcoin:
 └─ Ventana ASIC design: 34 horas × N ciclos = ≈6 meses (aún muy largo)
 ```
 
-El cambio de época más frecuente requiere que cualquier hardware ASIC se rediseñe constantemente. El cambio de parámetros arquitectónicos toma tipicamente 6-12 meses desde concepto hasta producción en masa, mientras que nuestras épocas cambian cada 34 horas. Esto hace que el retorno sobre inversión (ROI) de un ASIC sea matemáticamente imposible.
+El cambio de época más frecuente requiere que cualquier hardware ASIC se adapte el doble de rápido que en Monero. El cambio de parámetros arquitectónicos ASIC toma típicamente 6-12 meses desde concepto hasta producción en masa, mientras que el dataset se regenera cada 34 horas con una semilla completamente nueva. Esto dificulta significativamente la optimización de hardware especializado.
 
-**Mejora 2: Dataset Variable (Opción 4)**
+> **Nota sobre RandomX v2:** El equipo original de RandomX (sech1, tevador, hyc_symas) está desarrollando RandomX v2 para la próxima actualización de Monero. v2 aumenta las operaciones por hash en un 52.9% y mejora la eficiencia energética de CPUs modernas. NinaCatCoin evaluará adoptar v2 con un salt personalizado cuando se finalice, en un único hard fork coordinado.
 
-El dataset de RandomX es la memoria caché que contiene el material de cálculo para generar hashes. En Monero, es fijo en 2GB. En ninacatcoin, crece dinámicamente con la potencia de red:
+#### 9.2 Minería CPU: Acceso Democrático
 
-```
-Fórmula de Tamaño de Dataset:
-dataset_size = min(2GB + (network_hashrate_TH_s × 10MB), 4GB)
+**Requisitos mínimos reales de RandomX:**
 
-Ejemplos:
-- Red pequeña (100 TH/s):  2GB + (100 × 10MB) = 3GB
-- Red mediana (1000 TH/s): 2GB + (1000 × 10MB) = 12GB → Limitado a 4GB máximo
-- Red grande (10000 TH/s): Límite = 4GB
-```
+- **Arquitectura:** x86-64 (64-bit) o ARMv8 (AArch64) — CPUs de 32-bit **NO pueden** ejecutar RandomX
+- **RAM:** 2 GB mínimo (el dataset RandomX ocupa 2080 MB en modo completo, o 256 MB en modo ligero)
+- **AES-NI:** No obligatorio, pero RandomX lo usa para inicialización/finalización del scratchpad si está disponible. Sin AES-NI el rendimiento cae ~3-5x
 
-La razón de esto es que los ASICs requieren arquitectura de memoria física específica. Si el dataset crece de 2GB a 4GB entre épocas, un ASIC optimizado para 2GB se vuelve subóptimo. Los costos de rediseño y retooling se disparan exponencialmente.
+> **Nota importante:** NinaCatCoin no implementa ninguna modificación especial para CPUs antiguas. La compatibilidad depende enteramente de las capacidades de RandomX estándar y del xmrig utilizado.
 
-**Mejora 3: Modo Dual con Penalización GPU (Dual-Mode)**
+| CPU | Año | Arquitectura | AES-NI | Status |
+|-----|------|-------------|--------|--------|
+| Intel Pentium 4 | 2000 | NetBurst (32-bit) | ❌ | ❌ NO FUNCIONA (32-bit, no x86-64) |
+| Intel Celeron M | 2003 | Dothan (32-bit) | ❌ | ❌ NO FUNCIONA (32-bit) |
+| AMD Athlon 64 | 2003 | K8 (64-bit) | ❌ | ⚠️ TEÓRICO (64-bit pero sin AES-NI, ~0.05 KH/s, necesita 2GB+ RAM) |
+| Intel Core 2 Duo | 2006 | Conroe (64-bit) | ❌ | ⚠️ FUNCIONA LENTO (sin AES-NI, ~0.1-0.2 KH/s) |
+| Intel Atom | 2008 | Bonnell | ❌ | ⚠️ DEPENDE (solo variantes 64-bit, sin AES-NI, muy lento) |
+| Intel i5 Generación 1 | 2009 | Westmere (64-bit) | ✅ | ✅ FUNCIONA (~0.4 KH/s con AES-NI) |
+| ARM Cortex-A53+ | 2014 | ARMv8 (AArch64) | ✅ | ✅ FUNCIONA (ARM crypto extensions) |
+| Raspberry Pi 4 | 2019 | ARMv8 (Cortex-A72) | ✅ | ✅ FUNCIONA (~0.15 KH/s) |
+| Intel i9 Generación 13 | 2024 | Raptor Lake | ✅ | ✅ FUNCIONA ÓPTIMO (~1.0 KH/s/core) |
 
-Cada 5 bloques (el 20% de todos los bloques), RandomX se ejecuta en modo "seguro" que desactiva las optimizaciones JIT (Just-In-Time compilation):
+**¿Qué instrucciones usa realmente RandomX?**
 
-```
-Secuencia de Bloques:
-├─ Bloque 0 (altura % 5 == 0):  GPU Penalty Mode ❌ (10x más lento)
-├─ Bloque 1: Normal ✅
-├─ Bloque 2: Normal ✅
-├─ Bloque 3: Normal ✅
-├─ Bloque 4: Normal ✅
-└─ Promedio: 1 lento + 4 rápidos = ~20% eficiencia GPU
-
-En modo seguro:
-- RANDOMX_FLAG_SECURE desactiva JIT
-- GPU debe ejecutar código genérico compilado
-- GPU pierde ventaja de paralelismo de hilos
-- Resultado: GPU ejecuta 10x más lentamente
-```
-
-#### 9.2 Minería CPU: Acceso Democrático Garantizado
-
-**La promesa central: Cualquier CPU puede minar**
-
-A diferencia de sistemas que favorecen hardware moderno, ninacatcoin garantiza que cualquier procesador x86-64 puede minar efectivamente. Esto incluye:
-
-| CPU | Año | Arquitectura | Status |
-|-----|------|-------------|--------|
-| Intel Pentium 4 | 2000 | NetBurst | ✅ FUNCIONA 100% |
-| Intel Core 2 Duo | 2006 | Conroe | ✅ FUNCIONA 100% |
-| Intel Celeron M | 2003 | Dothan | ✅ FUNCIONA 100% |
-| AMD Athlon 64 | 2003 | K8 | ✅ FUNCIONA 100% |
-| Intel Atom | 2008 | Bonnell | ✅ FUNCIONA 100% |
-| Intel i5 Generación 1 | 2009 | Westmere | ✅ FUNCIONA 100% |
-| ARM Cortex-A7 | 2012 | ARMv7 | ✅ FUNCIONA 100% |
-| Raspberry Pi 4 | 2019 | ARMv8 | ✅ FUNCIONA 100% |
-| Intel i9 Generación 13 | 2024 | Raptor Lake | ✅ FUNCIONA 100% |
-
-**¿Por qué es agnóstico a la edad de CPU?**
-
-RandomX está diseñado deliberadamente para ser independiente de instrucciones modernas:
+RandomX fue diseñado para favorecer CPUs de propósito general, pero **sí utiliza instrucciones modernas** cuando están disponibles:
 
 ```
+RandomX SÍ utiliza (cuando están disponibles):
+- AES-NI: Para inicialización y finalización del scratchpad (blake2b + AES rounds)
+  → Sin AES-NI: software fallback ~3-5x más lento en esa fase
+- Hardware prefetch: Instrucciones explícitas de prefetch para el dataset de 2GB
+- IEEE 754 floating point: Operaciones de punto flotante de doble precisión
+- Integer arithmetic: add, sub, mul, xor, rol, ror, shl, shr (base del VM)
+- L3 cache bandwidth: El scratchpad (2MB) se diseñó para caber en L3
+- Memory latency: Accesos aleatorios al dataset de 2GB
+- Branch prediction: Saltos condicionales aleatorios
+
 RandomX NO utiliza:
-- SIMD instructions (SSE, AVX, AVX-512)
-- Crypto instructions (AES-NI, SHA, CLMUL)
-- Cache prefetching hints
-- Especulación de rama optimizada
-
-RandomX SÍ utiliza:
-- Integer arithmetic (add, sub, mul, xor, rol, ror, shl, shr)
-- L3 cache bandwidth
-- Memory latency
-- Branch prediction genérica
+- SIMD paralelo (SSE, AVX, AVX-512) — el VM es escalar
+- SHA-NI — usa Blake2b, no SHA
+- GPU compute — los branches y código aleatorio son hostiles a GPUs
 ```
 
-Todas estas características existían en CPUs de 2000. La diferencia de velocidad entre una CPU de 2006 y una de 2024 es puramente por:
+La diferencia de velocidad entre CPUs de distintas generaciones depende de:
 
-1. **Cache L3 más grande** (mayor o igual)
-2. **Clock speed superior** (GHz)
-3. **Memory bandwidth mejorado** (DDR velocidades)
+1. **AES-NI** (~3-5x ventaja si está presente, disponible desde ~2010)
+2. **Cache L3 más grande** (más scratchpad hits)
+3. **Clock speed superior** (GHz)
+4. **Memory bandwidth mejorado** (DDR velocidades)
 
-No por instrucciones que no existan en hardware antiguo.
+En la práctica, CPUs anteriores a ~2010 sin AES-NI son viables pero significativamente más lentas.
 
 **Benchmarks de Velocidad Relativa:**
 
@@ -1846,7 +1820,7 @@ No por instrucciones que no existan en hardware antiguo.
 Monero RandomX Hashrate (aproximado):
 
 Intel Core i7-9700K (2018, 8 cores, 12MB L3):     6.5 KH/s
-AMD Ryzen 7 3700X (2019, 16 cores, 32MB L3):     7.5 KH/s
+AMD Ryzen 7 3700X (2019, 8 cores/16 threads, 32MB L3): 7.5 KH/s
 Intel Core i7-4770 (2013, 4 cores, 8MB L3):      3.2 KH/s
 Intel Core 2 Quad Q6600 (2007, 4 cores, 8MB L3): 0.8 KH/s
 Raspberry Pi 4 (2019, 4 cores, 1MB L3):          0.15 KH/s
@@ -1866,99 +1840,42 @@ Una persona con CPU antigua gana recompensas menores que alguien con CPU moderna
 - ✅ No hay exclusión técnica
 - ✅ Puede "usar lo que tiene" y aún generar ingresos
 
-#### 9.3 Minería GPU: Rentabilidad Degradada Intencionalmente
+#### 9.3 Minería GPU: Resistencia Inherente de RandomX
 
-**GPU sí pueden minar, pero solo con 20% de eficiencia**
+RandomX fue diseñado específicamente para que las CPUs sean el hardware óptimo. Las GPUs pueden ejecutar RandomX pero son inherentemente ineficientes porque el algoritmo utiliza:
 
-El sistema de penalización cada 5 bloques crea una economía donde las GPUs son técnicamente compatibles pero económicamente irracionales:
+- **Ejecución de código aleatorio**: cada hash genera un programa diferente — las GPUs no pueden paralelizar código impredecible
+- **Saltos condicionales (branches)**: las GPUs carecen de predicción de rama sofisticada
+- **Acceso aleatorio a 2GB de memoria**: patrón de acceso no secuencial penaliza la arquitectura GPU
+- **Aritmética de punto flotante IEEE 754**: con 4 modos de redondeo que las GPUs no manejan nativamente
 
-```
-Modelo de Minería:
-┌─────────────┬──────────────────┬─────────────────────┐
-│   Tipo      │   Eficiencia     │   Rentabilidad      │
-├─────────────┼──────────────────┼─────────────────────┤
-│   CPU       │      100%        │   Baseline 100%     │
-│   GPU       │      ~20%        │   -80% vs CPU       │
-│   ASIC      │       0%         │   Imposible (∞ años)│
-└─────────────┴──────────────────┴─────────────────────┘
-```
+Este diseño inherente de RandomX hace que las GPUs operen a una fracción de la eficiencia de una CPU equivalente en coste, sin necesidad de penalizaciones artificiales.
 
-**Análisis de ROI (Retorno sobre Inversión):**
+#### 9.4 ASICs: Difícil por Diseño
 
-```
-Escenario 1: CPU Mining
-├─ Hardware: CPU Ryzen 5 7500F (~$100)
-├─ Consumo: 65W TDP
-├─ Hashrate: 1.5 KH/s
-├─ Recompensa esperada: 100 NINA/mes (teórico)
-├─ Costo electricidad/mes: $2
-└─ Ganancia neta: 98 NINA/mes → ROI: 12 meses
-
-Escenario 2: GPU Mining
-├─ Hardware: RTX 4060 Ti (~$400)
-├─ Consumo: 130W TDP
-├─ Hashrate "efectivo": 2 KH/s × 0.2 = 0.4 KH/s (penalty)
-├─ Recompensa esperada: 20 NINA/mes (teórico)
-├─ Costo electricidad/mes: $4
-└─ Ganancia neta: 16 NINA/mes → ROI: 25 meses (2.1x peor)
-
-Conclusión: GPU es económicamente irracional
-```
-
-**Desglose Técnico de la Penalización:**
-
-```
-En bloques normales (4 de cada 5):
-├─ GPU JIT enabled ✓
-├─ CPU normal también ✓
-└─ GPU ~ 20-30% más rápida que CPU
-
-En bloques de penalización (1 de cada 5):
-├─ GPU JIT disabled ✗
-├─ GPU debe usar interpretador genérico
-├─ GPU 10x más lenta
-└─ GPU ≪ CPU en velocidad
-
-Promedio neto:
-├─ GPU: (4 × rápido + 1 × lento) / 5 = (4R + 1/10R) / 5 = 0.82R
-├─ CPU: 5 × rápido / 5 = 1R
-└─ Ratio GPU:CPU = 0.82:1 ≈ 20% de eficiencia relativamente
-```
-
-#### 9.4 ASICs: Imposible por Diseño
-
-**Triple capa de defensa:**
-
-Capa 1: Epochs Rápidos (34h)
-- ASIC design cycle: 12 meses
-- Epoch duration: 34 horas
-- Parámetros obsoletos: 212 veces antes de que se fabrique
-
-Capa 2: Dataset Dinámico (2GB-4GB)
-- ASIC optimizado para 2GB pierde eficiencia en 4GB
-- Requiere rediseño de arquitectura de memoria
-- No hay "margen de escalabilidad" planificado
-
-Capa 3: GPU Penalty (20% bloques)
-- Penaliza intentos de GPU ASIC
-- Cualquier híbrido ASIC+GPU sufre doblemente
-- ROI imposible para producto ASIC especializado
-
-**Comparación vs Monero:**
+**Defensa principal: Epochs rápidos**
 
 ```
 Monero (Original RandomX):
 ├─ Epochs: 2048 bloques (68 horas)
-├─ Dataset: Fijo 2GB
-├─ GPU penalty: Ninguno
-└─ ASIC timeline: ~18 meses viable
+└─ Dataset regenerado cada ~2.8 días
 
 Ninacatcoin (RandomX Mejorado):
 ├─ Epochs: 1024 bloques (34 horas) ← 2x más frecuentes
-├─ Dataset: 2GB-4GB dinámico ← variable con red
-├─ GPU penalty: 20% bloques ← desincentiva GPU ASIC
-└─ ASIC timeline: >120 años (parámetros cambian 35x/año)
+└─ Dataset regenerado cada ~1.4 días
 ```
+
+El ASIC Bitmain X9 (2025) demostró que RandomX no es completamente inmune a ASICs. Sin embargo, los epochs más cortos de NinaCatCoin hacen que la regeneración del dataset sea el doble de frecuente, aumentando la carga sobre hardware especializado.
+
+**Defensa futura: RandomX v2** reducirá la ventaja del X9 en al menos un 30% gracias a 384 instrucciones por programa, 16 operaciones AES en el loop principal, y prefetch de 2 iteraciones. NinaCatCoin planea adoptar v2 junto con un salt personalizado en un único hard fork.
+
+**Defensa adicional de NinaCatCoin (6 capas que Monero no tiene):**
+1. NINA AI — detección de patrones anómalos de minería
+2. NodeProtector — sistema inmune contra nodos maliciosos
+3. LWMA + EDA — ajuste de dificultad rápido anti-manipulación
+4. Eventos X2/X200 — protección anti-spike con freeze
+5. Checkpoint quarantine — reputación P2P de nodos
+6. Validación de prefijos de dirección — rechaza wallets Monero (118/119/142 vs 18/42)
 
 #### 9.5 Recomendaciones para Mineros
 
@@ -1971,16 +1888,16 @@ Ninacatcoin (RandomX Mejorado):
 **Para usuarios con GPU:**
 ```
 GPU AMD Radeon RX 5700 XT o similar:
-├─ ¿Puedo minar ninacatcoin? SÍ, técnicamente
-├─ ¿Es rentable? NO, solo 20% de eficiencia
-├─ ¿Debería hacerlo? NO, desperdicia electricidad
-└─ Alternativa recomendada: Usar CPU de la máquina
+├─ ¿Puedo minar ninacatcoin? SÍ, técnicamente con xmrig
+├─ ¿Es eficiente? NO — RandomX está diseñado para CPUs
+├─ ¿Debería hacerlo? Mejor usar la CPU de la misma máquina
+└─ Alternativa: Usar los núcleos CPU disponibles con xmrig
 ```
 
 **Para operadores de pool:**
-- Implementar mecanismo de detección de penalty blocks
-- Soportar ambos modos (CPU normal + GPU penalty)
-- Informar a mineros sobre eficiencia GPU esperada
+- Implementar validación de prefijos de dirección (118/119/142 para NINA)
+- Rechazar wallets Monero (prefejo 18/42) o redirigir su hashrate
+- Informar a mineros sobre compatibilidad con xmrig estándar
 
 - **Dandelion++** proporciona propagación privada de transacciones
 - Logs detallados para diagnosticar problemas
@@ -3387,7 +3304,7 @@ Si TODO falla:
 | **Defensa contra 51%** | Hardcoding automático | Hardcoding manual | Consenso solo (débil) | PoS (diferente modelo) |
 | **Punto único fallo** | NINGUNO (3+ seeds) | Equipo Monero | NINGUNO (pero descentralizado) | NINGUNO (pero descentralizado) |
 | **Distribución de checkspoints** | HTTPS CDN + 3 seeds | GitHub (centralizado) | N/A | N/A |
-| **GPU Penalty** | SÍ (0.25x) | NO | NO | N/A (PoS) |
+| **Resistencia GPU** | Inherente (RandomX) | Inherente (RandomX) | NO (SHA-256) | N/A (PoS) |
 | **Resistencia 51% final** | **IMPOSIBLE** | **DÉBIL** | **VULNERABLE** | **N/A (PoS)** |
 
 #### 9.6.2 Bitcoin: Sin Defensa

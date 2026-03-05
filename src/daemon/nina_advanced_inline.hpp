@@ -13,6 +13,7 @@
 #include "nina_ring_controller.hpp"
 #include "nina_ring_enhancer.hpp"
 #include "nina_sybil_detector.hpp"
+#include "nina_node_protector.hpp"
 #include "nina_constitution.hpp"
 #include "nina_complete_evolution.hpp"
 #include "nina_persistence_engine.hpp"
@@ -32,36 +33,68 @@
 namespace daemonize {
 
 using namespace ninacatcoin::ia;
+using ninacatcoin_ai::NinaEvent;
+using ninacatcoin_ai::NinaEventType;
+using ninacatcoin_ai::NinaDecisionEngine;
+using ninacatcoin_ai::NinaActionType;
 
 /**
  * Global NINA Advanced Coordinator Instance
  * Created once at daemon startup
  */
-static std::unique_ptr<NInaAdvancedCoordinator> g_nina_advanced_ai = nullptr;
+inline std::unique_ptr<NInaAdvancedCoordinator> g_nina_advanced_ai = nullptr;
 
 /**
  * Global Sybil Detector Instance
  * Monitors peer behavior to detect coordinated attacks
  */
-static std::unique_ptr<SybilDetectorModule> g_nina_sybil_detector = nullptr;
+inline std::unique_ptr<SybilDetectorModule> g_nina_sybil_detector = nullptr;
 
 /**
  * Callback for persisting NINA learning metrics to LMDB.
  * Set during daemon initialization to avoid hard symbol dependencies
  * in non-daemon targets (blockchain utilities, etc.).
  */
-static void (*g_nina_persist_learning_fn)(uint64_t) = nullptr;
+inline void (*g_nina_persist_learning_fn)(uint64_t) = nullptr;
 
 /**
  * In-memory buffer for block records awaiting LMDB persistence.
  * Accumulated on every observed block, flushed every 15 blocks.
  */
-static std::map<uint64_t, PersistedBlockRecord> g_nina_pending_block_records;
+inline std::map<uint64_t, PersistedBlockRecord> g_nina_pending_block_records;
 
 // Forward declarations
 inline void nina_advanced_generate_report(uint64_t block_height);
 inline void nina_sybil_analyze_and_alert();
 inline std::string nina_sybil_get_status();
+
+/**
+ * Get normalized Sybil score for the current peer set.
+ * Returns 0.0 (no Sybil) to 1.0 (severe Sybil attack detected).
+ * Called from blockchain.cpp to feed NinaRingController with REAL data.
+ */
+inline float nina_sybil_get_network_score()
+{
+    if (!g_nina_sybil_detector) return 0.0f;
+    try {
+        auto scores = g_nina_sybil_detector->get_all_sybil_scores();
+        if (scores.empty()) return 0.0f;
+        // Find the highest individual peer Sybil confidence
+        double max_confidence = 0.0;
+        int dangerous_count = 0;
+        for (const auto& s : scores) {
+            if (s.correlation_confidence > max_confidence)
+                max_confidence = s.correlation_confidence;
+            if (s.threat_level == "dangerous")
+                dangerous_count++;
+        }
+        // Normalize: 0-100 confidence → 0.0-1.0 score
+        // Boost if multiple dangerous peers detected (cluster attack)
+        float base_score = static_cast<float>(max_confidence / 100.0);
+        float cluster_boost = std::min(0.3f, dangerous_count * 0.1f);
+        return std::min(1.0f, base_score + cluster_boost);
+    } catch (...) { return 0.0f; }
+}
 
 /**
  * Load shared ML models received from peers via P2P
@@ -373,9 +406,9 @@ inline void nina_advanced_observe_block(
             nina_advanced_generate_report(block_height);
         }
         
-        // Persist NINA memory to LMDB every 15 blocks (~30 min)
-        // This ensures NINA doesn't lose memory if daemon crashes
-        if (block_height > 0 && block_height % 15 == 0) {
+        // Persist NINA memory to LMDB on EVERY block
+        // Full on-chain memory: every block carries NINA's complete state
+        if (block_height > 0) {
             uint64_t anomalies = g_nina_advanced_ai->get_anomalous_tx().get_suspicious_transactions(6.0).size();
             uint64_t attacks = 0;  // Would count detected attacks
             double accuracy = 0.94;  // Would calculate from actual predictions
@@ -653,15 +686,19 @@ inline void nina_sybil_analyze_and_alert()
         // Log analysis results
         MINFO("[SYBIL] " << cluster_result.cluster_analysis);
         
-        // Alert on dangerous peers
+        // ── NINA DECIDES on Sybil: fire SYBIL_SUSPECTED through Decision Engine ──
         if (!cluster_result.flagged_peers.empty()) {
             MWARNING("[SYBIL] ⚠️ POTENTIAL SYBIL ATTACK DETECTED!");
             MWARNING("[SYBIL] " << cluster_result.flagged_peers.size() << " peer(s) under suspicion:");
             
+            // Compute max confidence across all flagged peers
+            float max_confidence = 0.0f;
             for (const auto& peer_id : cluster_result.flagged_peers) {
                 auto score = g_nina_sybil_detector->calculate_peer_sybil_score(peer_id);
                 MWARNING("[SYBIL]    Peer " << peer_id.substr(0, 16) << "... - Confidence: " 
                         << score.correlation_confidence << "% - " << score.reasoning);
+                if (score.correlation_confidence > max_confidence)
+                    max_confidence = score.correlation_confidence;
             }
             
             // Log to audit trail
@@ -672,6 +709,50 @@ inline void nina_sybil_analyze_and_alert()
             }
             nina_audit_log(0, "SYBIL_ALERT", "Detected " + std::to_string(cluster_result.clusters.size()) + 
                           " cluster(s): [" + flagged_list + "]");
+
+            // ── ASK NINA what to do about these Sybil peers ──
+            try {
+                NinaEvent sybil_event(NinaEventType::SYBIL_SUSPECTED);
+                sybil_event.set("flagged_peers", std::to_string(cluster_result.flagged_peers.size()));
+                sybil_event.set("clusters", std::to_string(cluster_result.clusters.size()));
+                sybil_event.set("max_confidence", static_cast<double>(max_confidence));
+                sybil_event.set("severity", static_cast<double>(max_confidence / 100.0));
+
+                auto actions = NinaDecisionEngine::getInstance().evaluate(sybil_event);
+
+                for (const auto& action : actions) {
+                    if (action.type == NinaActionType::QUARANTINE_PEER) {
+                        MWARNING("[NINA-DECISION] SYBIL → QUARANTINE_PEER"
+                                 << " (confidence=" << action.confidence
+                                 << " peers=" << cluster_result.flagged_peers.size()
+                                 << "): " << action.reasoning);
+                        NinaDecisionEngine::getInstance().record_action_executed(NinaActionType::QUARANTINE_PEER);
+                    } else if (action.type == NinaActionType::DECREASE_PEER_TRUST) {
+                        MINFO("[NINA-DECISION] SYBIL → DECREASE_TRUST: " << action.reasoning);
+                        NinaDecisionEngine::getInstance().record_action_executed(NinaActionType::DECREASE_PEER_TRUST);
+                    } else if (action.type == NinaActionType::MONITOR_PEER) {
+                        MINFO("[NINA-DECISION] SYBIL → MONITOR: " << action.reasoning);
+                        NinaDecisionEngine::getInstance().record_action_executed(NinaActionType::MONITOR_PEER);
+                    }
+                }
+            } catch (...) {
+                // Sybil decision should NEVER break daemon operation
+            }
+
+            // ── Feed NinaNodeProtector with Sybil data ──
+            // NINA AI evaluates if WE are the victim of a Sybil attack.
+            // The protector decides: PROTECT_NODE (safe mode) or MONITOR.
+            try {
+                ninacatcoin_ai::NinaNodeProtector::getInstance().evaluate_node_threat(
+                    0, // height unknown in periodic analysis
+                    max_confidence / 100.0f, // sybil_score normalized 0-1
+                    0.0f, // ml_risk_score (not available here)
+                    0.0f, // hashrate_drop (not available here)
+                    cluster_result.flagged_peers.empty() ? "" : cluster_result.flagged_peers[0],
+                    0);
+            } catch (...) {
+                // Protector should NEVER break daemon
+            }
         }
         
         // Also audit top suspicious peers even if not in clusters

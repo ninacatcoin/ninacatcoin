@@ -32,54 +32,30 @@
 #define ninacatcoin_DEFAULT_LOG_CATEGORY "blockchain.hardforks"
 
 // ===== NINACATCOIN HARD FORK SCHEDULE =====
-// v1: Genesis (CryptoNight)
-// v2-v16: All features activated at block 3000
-//   v2:  Decomposed outputs, min mixin 2
-//   v4:  Dynamic fee, RingCT allowed, min mixin 4
-//   v6:  RingCT enforced, min mixin 6
-//   v7:  CryptoNight v1
-//   v8:  Bulletproofs, per-byte fee
-//   v10: Bulletproof2, long-term block weight, min mixin 10
-//   v12: RandomX PoW, fixed mixin, coinbase v2
-//   v13: CLSAG, exact coinbase
-//   v15: Bulletproof+, View Tags, 2021 scaling, min mixin 15
-//   v16: Only Bulletproof+ allowed
-// v17: AI-enhanced consensus — embedded ML anomaly detection, NINA state sync
-// v18: NINA full on-chain — memory in blockchain LMDB, model hash in coinbase,
-//      hourly checkpoint auto-generation, P2P hash exchange, nina_state/
-//      nina_checkpoints/nina_decisions/nina_anomalies tables in data.mdb
+// Two-phase hard fork:
+//   Heights 0-2: v1 (genesis + 2 blocks for fork voting window)
+//   Height 3+:   v18 — all protocol features active:
+//     RingCT, CLSAG, Bulletproof+, View Tags, RandomX PoW, 2021 scaling,
+//     AI-enhanced consensus, NINA full on-chain (memory, model hash, checkpoints).
 
 const hardfork_t mainnet_hard_forks[] = {
-  // version, height, threshold, time
-  // v1: Genesis — CryptoNight PoW
-  { 1,  1,    0, 1706313600 },
-  // v16: All features activated — RandomX PoW, RingCT, CLSAG, Bulletproof+, View Tags
-  // Jumping directly from v1 to v16 is safe: all HF checks use >= comparisons,
-  // so v16 satisfies all intermediate version requirements (v2-v15).
-  // add_fork() requires strictly increasing (version, height, time).
-  { 16, 3000, 0, 1706400000 },
-  // v17: AI-enhanced consensus — embedded ML anomaly detection, continuous NINA state sync
-  { 17, 17500, 0, 1740000000 },
-  // v18: NINA full on-chain — memory in data.mdb, model hash in coinbase (tag 0xCA),
-  //      NINA state per block (tag 0xCB), hourly checkpoint generation, P2P hash exchange
-  { 18, 20000, 0, 1741000000 },
+  // v1: genesis and early blocks (heights 0-2)
+  { 1,  1, 0, 1706313600 },
+  // v18: all features active from height 3
+  { 18, 3, 0, 1706313601 },
 };
 const size_t num_mainnet_hard_forks = sizeof(mainnet_hard_forks) / sizeof(mainnet_hard_forks[0]);
-const uint64_t mainnet_hard_fork_version_1_till = 2999;
+const uint64_t mainnet_hard_fork_version_1_till = 2; // heights 0, 1, 2 are v1
 
 const hardfork_t testnet_hard_forks[] = {
-  { 1,  1,    0, 1706313600 },
-  { 16, 3000, 0, 1706400000 },
-  { 17, 17500, 0, 1740000000 },
-  { 18, 20000, 0, 1741000000 },
+  { 1,  1, 0, 1706313600 },
+  { 18, 3, 0, 1706313601 },
 };
 const size_t num_testnet_hard_forks = sizeof(testnet_hard_forks) / sizeof(testnet_hard_forks[0]);
-const uint64_t testnet_hard_fork_version_1_till = 2999;
+const uint64_t testnet_hard_fork_version_1_till = 2;
 
 const hardfork_t stagenet_hard_forks[] = {
-  { 1,  1,    0, 1706313600 },
-  { 16, 3000, 0, 1706400000 },
-  { 17, 17500, 0, 1740000000 },
-  { 18, 20000, 0, 1741000000 },
+  { 1,  1, 0, 1706313600 },
+  { 18, 3, 0, 1706313601 },
 };
 const size_t num_stagenet_hard_forks = sizeof(stagenet_hard_forks) / sizeof(stagenet_hard_forks[0]);

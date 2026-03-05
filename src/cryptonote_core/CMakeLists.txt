@@ -34,10 +34,7 @@ set(cryptonote_core_sources
   cryptonote_tx_utils.cpp
   tx_verification_utils.cpp
   # nina_ml_client.cpp removed — replaced by embedded model (ai/ai_embedded_model_weights.hpp)
-  ../daemon/nina_learning_module.cpp
-  ../daemon/nina_block_data_logger.cpp
-  ../daemon/nina_memory_system.cpp
-  nina_llm_engine_stub.cpp
+  # Daemon AI .cpp files moved to ninacatcoin_ai library (linked via PUBLIC dependency)
 )
 
 set(cryptonote_core_headers)
@@ -55,6 +52,7 @@ target_link_libraries(cryptonote_core
     version
     common
     cncrypto
+    ninacatcoin_ai
     blockchain_db
     ringct
     device

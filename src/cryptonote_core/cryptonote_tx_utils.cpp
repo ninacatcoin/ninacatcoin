@@ -75,7 +75,7 @@ namespace cryptonote
     LOG_PRINT_L2("destinations include " << num_stdaddresses << " standard addresses and " << num_subaddresses << " subaddresses");
   }
   //---------------------------------------------------------------
-  bool construct_miner_tx(size_t height, size_t median_weight, uint64_t already_generated_coins, size_t current_block_weight, uint64_t fee, const account_public_address &miner_address, transaction& tx, const blobdata& extra_nonce, size_t max_outs, uint8_t hard_fork_version, const crypto::hash *prev_block_hash) {
+  bool construct_miner_tx(size_t height, size_t median_weight, uint64_t already_generated_coins, size_t current_block_weight, uint64_t fee, const account_public_address &miner_address, transaction& tx, const blobdata& extra_nonce, size_t max_outs, uint8_t hard_fork_version, const crypto::hash *prev_block_hash, bool events_frozen) {
     tx.vin.clear();
     tx.vout.clear();
     tx.extra.clear();
@@ -92,7 +92,7 @@ namespace cryptonote
     in.height = height;
 
     uint64_t block_reward;
-    if(!get_block_reward(median_weight, current_block_weight, already_generated_coins, block_reward, hard_fork_version, height, prev_block_hash))
+    if(!get_block_reward(median_weight, current_block_weight, already_generated_coins, block_reward, hard_fork_version, height, prev_block_hash, events_frozen))
     {
       LOG_PRINT_L0("Block is too big");
       return false;
@@ -171,7 +171,7 @@ namespace cryptonote
       tx.version = 1;
 
     //lock
-    tx.unlock_time = height + CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW;
+    tx.unlock_time = height + ((hard_fork_version >= HF_VERSION_SHORT_UNLOCK_WINDOW) ? CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW_V18 : CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW);
     tx.vin.push_back(in);
 
     tx.invalidate_hashes();

@@ -35,9 +35,7 @@ set(daemon_sources
   rpc_command_executor.cpp
   discord_notifier.cpp
   discord_ia_integration.cpp
-  nina_memory_system.cpp
   nina_suggestion_engine.cpp
-  nina_constitution.cpp
   nina_network_health_monitor.cpp
   nina_parameter_adjustor.cpp
   nina_consensus_tuner.cpp
@@ -45,9 +43,6 @@ set(daemon_sources
   nina_governance_engine.cpp
   nina_adaptive_learning.cpp
   nina_human_collaboration.cpp
-  nina_complete_evolution.cpp
-  nina_persistence_engine.cpp
-  nina_llm_engine.cpp
 )
 
 set(daemon_headers)

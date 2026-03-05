@@ -249,6 +249,10 @@ namespace cryptonote
   {
     return m_blockchain_storage.get_checkpoints();
   }
+  checkpoints& core::get_mutable_checkpoints()
+  {
+    return m_blockchain_storage.get_mutable_checkpoints();
+  }
   void core::set_checkpoints(checkpoints&& chk_pts)
   {
     m_blockchain_storage.set_checkpoints(std::move(chk_pts));

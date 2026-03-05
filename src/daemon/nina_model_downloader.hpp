@@ -69,8 +69,8 @@ public:
 
     /**
      * Get the default model directory path
-     * Windows: C:\Users\Username\.ninacatcoin\models
-     * Linux/Mac: ~/.ninacatcoin/models
+     * Windows: C:\Users\Username\.ninacatcoin
+     * Linux/Mac: ~/.ninacatcoin
      */
     static std::string get_model_dir() {
 #ifdef _WIN32
@@ -80,14 +80,14 @@ public:
             MERROR("[NINA-LLM-DOWNLOAD] Cannot determine USERPROFILE directory");
             return "";
         }
-        return std::string(home) + "\\.ninacatcoin\\models";
+        return std::string(home) + "\\.ninacatcoin";
 #else
         const char* home = std::getenv("HOME");
         if (!home) {
             MERROR("[NINA-LLM-DOWNLOAD] Cannot determine HOME directory");
             return "";
         }
-        return std::string(home) + "/.ninacatcoin/models";
+        return std::string(home) + "/.ninacatcoin";
 #endif
     }
 

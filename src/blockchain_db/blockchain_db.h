@@ -1835,10 +1835,9 @@ public:
   virtual void fixup();
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // NINA On-Chain Persistence (v18 hard fork — height >= 20000)
+  // NINA On-Chain Persistence (v18 hard fork — active from genesis)
   //
-  // Before v18: NINA uses a separate LMDB at ~/.ninacatcoin/nina_state/
-  // After  v18: NINA writes directly into the blockchain's data.mdb
+  // NINA writes directly into the blockchain's data.mdb from height 1.
   //
   // These methods provide a database-agnostic interface for NINA to store:
   //   - State (statistics, metadata, learning metrics)  → nina_state table

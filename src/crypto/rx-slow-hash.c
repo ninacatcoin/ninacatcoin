@@ -133,25 +133,10 @@ static inline int enabled_flags(void) {
   return flags;
 }
 
-// ===== NINACATCOIN RANDOMX IMPROVEMENTS =====
-// Opción 1: Shorter epochs to prevent ASIC optimization
+// ===== NINACATCOIN RANDOMX CONFIGURATION =====
+// Shorter epochs to prevent ASIC optimization
 #define SEEDHASH_EPOCH_BLOCKS	1024	/* Changed from 2048 to 1024 (34 hours instead of 68 hours) */
 #define SEEDHASH_EPOCH_LAG		32	/* Proportional reduction from 64 */
-
-// Opción 4: Variable dataset size based on network hashrate
-#define RANDOMX_DATASET_BASE_SIZE    2147483648ULL  // 2GB base
-#define RANDOMX_DATASET_GROWTH       10485760ULL    // +10MB per TH/s of network hashrate
-#define RANDOMX_DATASET_MAX_SIZE     4294967296ULL  // 4GB max
-
-// Dual-Mode: 20% GPU penalty blocks to prioritize CPU mining
-#define GPU_PENALTY_INTERVAL         5              // Every 5th block = GPU penalty (20%)
-
-// ===== HELPER FUNCTION: Detect GPU penalty blocks =====
-static inline bool is_gpu_penalty_block(uint64_t height) {
-  // Every 5th block (20% of blocks) uses GPU-penalty mode
-  // This gives GPU miners only ~20% of mining rewards
-  return (height % GPU_PENALTY_INTERVAL) == 0;
-}
 
 static inline int is_power_of_2(uint64_t n) { return n && (n & (n-1)) == 0; }
 
@@ -317,6 +302,11 @@ static CTHR_THREAD_RTYPE rx_seedthread(void *arg) {
 
 static void rx_init_dataset(size_t max_threads) {
   if (!main_dataset) {
+    return;
+  }
+
+  if (!main_cache) {
+    mwarning(RX_LOGCAT, "RandomX dataset init skipped: main cache not initialized yet");
     return;
   }
 
@@ -507,13 +497,26 @@ void rx_slow_hash(const char *seedhash, const void *data, size_t length, char *r
 void rx_set_miner_thread(uint32_t value, size_t max_dataset_init_threads) {
   miner_thread = value;
 
-  // If dataset is not allocated yet, try to allocate and initialize it
+  // If dataset is not allocated yet, try to allocate and initialize it.
+  // But if the background init thread (rx_set_main_seedhash) is running,
+  // this WRITE lock will block until it finishes — that's the intended behavior.
   CTHR_RWLOCK_LOCK_WRITE(main_dataset_lock);
   if (main_dataset) {
+    minfo(RX_LOGCAT, "RandomX miner thread %u: dataset already initialized", value);
     CTHR_RWLOCK_UNLOCK_WRITE(main_dataset_lock);
     return;
   }
 
+  // If main_cache is not initialized yet, the background init thread hasn't
+  // finished (or hasn't started). Don't allocate dataset here — it would be
+  // uninitialized. Let rx_slow_hash use light mode via secondary cache instead.
+  if (!main_cache) {
+    minfo(RX_LOGCAT, "RandomX miner thread %u: cache not ready, deferring dataset init", value);
+    CTHR_RWLOCK_UNLOCK_WRITE(main_dataset_lock);
+    return;
+  }
+
+  minfo(RX_LOGCAT, "RandomX miner thread %u: allocating and initializing dataset", value);
   const randomx_flags flags = enabled_flags() & ~disabled_flags();
   rx_alloc_dataset(flags, &main_dataset, 1);
   rx_init_dataset(max_dataset_init_threads);

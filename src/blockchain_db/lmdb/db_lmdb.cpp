@@ -4632,9 +4632,9 @@ void BlockchainLMDB::fixup()
 // data.mdb, sharing the same LMDB environment, transactions, and crash safety
 // as blocks and transactions.
 //
-// Activated at hard fork v18 (height 20000). Before v18, NINA uses a separate
-// LMDB at ~/.ninacatcoin/nina_state/data.mdb — the NINAPersistenceManager
-// routes calls to the correct backend based on current height.
+// Activated at hard fork v18 (height 1). NINA writes directly into the
+// blockchain's data.mdb, sharing the same LMDB environment, transactions,
+// and crash safety as blocks and transactions.
 // ═══════════════════════════════════════════════════════════════════════════════
 
 void BlockchainLMDB::nina_state_put(const std::string& key, const std::string& value)
@@ -4642,9 +4642,7 @@ void BlockchainLMDB::nina_state_put(const std::string& key, const std::string& v
   LOG_PRINT_L3("BlockchainLMDB::" << __func__);
   check_open();
 
-  mdb_txn_safe txn;
-  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
-    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_state_put: ", mdb_res).c_str()));
+  TXN_PREFIX(0);
 
   MDB_val k, v;
   k.mv_data = const_cast<char*>(key.data());
@@ -4652,10 +4650,10 @@ void BlockchainLMDB::nina_state_put(const std::string& key, const std::string& v
   v.mv_data = const_cast<char*>(value.data());
   v.mv_size = value.size();
 
-  if (auto result = mdb_put(txn, m_nina_state, &k, &v, 0))
+  if (auto result = mdb_put(*txn_ptr, m_nina_state, &k, &v, 0))
     throw0(DB_ERROR(lmdb_error("Failed to put nina_state: ", result).c_str()));
 
-  txn.commit();
+  TXN_POSTFIX_SUCCESS();
 }
 
 bool BlockchainLMDB::nina_state_get(const std::string& key, std::string& value) const
@@ -4688,9 +4686,7 @@ void BlockchainLMDB::nina_block_put(uint64_t height, const std::string& data)
   LOG_PRINT_L3("BlockchainLMDB::" << __func__);
   check_open();
 
-  mdb_txn_safe txn;
-  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
-    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_block_put: ", mdb_res).c_str()));
+  TXN_PREFIX(0);
 
   MDB_val k, v;
   k.mv_data = &height;
@@ -4698,10 +4694,10 @@ void BlockchainLMDB::nina_block_put(uint64_t height, const std::string& data)
   v.mv_data = const_cast<char*>(data.data());
   v.mv_size = data.size();
 
-  if (auto result = mdb_put(txn, m_nina_blocks, &k, &v, 0))
+  if (auto result = mdb_put(*txn_ptr, m_nina_blocks, &k, &v, 0))
     throw0(DB_ERROR(lmdb_error("Failed to put nina_block: ", result).c_str()));
 
-  txn.commit();
+  TXN_POSTFIX_SUCCESS();
 }
 
 bool BlockchainLMDB::nina_block_get(uint64_t height, std::string& data) const
@@ -4765,9 +4761,7 @@ void BlockchainLMDB::nina_checkpoint_put(uint64_t height, const std::string& dat
   LOG_PRINT_L3("BlockchainLMDB::" << __func__);
   check_open();
 
-  mdb_txn_safe txn;
-  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
-    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_checkpoint_put: ", mdb_res).c_str()));
+  TXN_PREFIX(0);
 
   MDB_val k, v;
   k.mv_data = &height;
@@ -4775,10 +4769,10 @@ void BlockchainLMDB::nina_checkpoint_put(uint64_t height, const std::string& dat
   v.mv_data = const_cast<char*>(data.data());
   v.mv_size = data.size();
 
-  if (auto result = mdb_put(txn, m_nina_checkpoints, &k, &v, 0))
+  if (auto result = mdb_put(*txn_ptr, m_nina_checkpoints, &k, &v, 0))
     throw0(DB_ERROR(lmdb_error("Failed to put nina_checkpoint: ", result).c_str()));
 
-  txn.commit();
+  TXN_POSTFIX_SUCCESS();
 }
 
 void BlockchainLMDB::nina_decision_put(const std::string& decision_id, const std::string& data)
@@ -4786,9 +4780,7 @@ void BlockchainLMDB::nina_decision_put(const std::string& decision_id, const std
   LOG_PRINT_L3("BlockchainLMDB::" << __func__);
   check_open();
 
-  mdb_txn_safe txn;
-  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
-    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_decision_put: ", mdb_res).c_str()));
+  TXN_PREFIX(0);
 
   MDB_val k, v;
   k.mv_data = const_cast<char*>(decision_id.data());
@@ -4796,10 +4788,10 @@ void BlockchainLMDB::nina_decision_put(const std::string& decision_id, const std
   v.mv_data = const_cast<char*>(data.data());
   v.mv_size = data.size();
 
-  if (auto result = mdb_put(txn, m_nina_decisions, &k, &v, 0))
+  if (auto result = mdb_put(*txn_ptr, m_nina_decisions, &k, &v, 0))
     throw0(DB_ERROR(lmdb_error("Failed to put nina_decision: ", result).c_str()));
 
-  txn.commit();
+  TXN_POSTFIX_SUCCESS();
 }
 
 void BlockchainLMDB::nina_audit_put(uint64_t timestamp_key, const std::string& data)
@@ -4807,9 +4799,7 @@ void BlockchainLMDB::nina_audit_put(uint64_t timestamp_key, const std::string& d
   LOG_PRINT_L3("BlockchainLMDB::" << __func__);
   check_open();
 
-  mdb_txn_safe txn;
-  if (auto mdb_res = mdb_txn_begin(m_env, NULL, 0, txn))
-    throw0(DB_ERROR(lmdb_error("Failed to create txn for nina_audit_put: ", mdb_res).c_str()));
+  TXN_PREFIX(0);
 
   MDB_val k, v;
   k.mv_data = &timestamp_key;
@@ -4817,10 +4807,10 @@ void BlockchainLMDB::nina_audit_put(uint64_t timestamp_key, const std::string& d
   v.mv_data = const_cast<char*>(data.data());
   v.mv_size = data.size();
 
-  if (auto result = mdb_put(txn, m_nina_audit, &k, &v, 0))
+  if (auto result = mdb_put(*txn_ptr, m_nina_audit, &k, &v, 0))
     throw0(DB_ERROR(lmdb_error("Failed to put nina_audit: ", result).c_str()));
 
-  txn.commit();
+  TXN_POSTFIX_SUCCESS();
 }
 
 uint64_t BlockchainLMDB::nina_block_count() const
@@ -5995,8 +5985,7 @@ void BlockchainLMDB::migrate(const uint32_t oldversion)
 //   nina_audit       — key=timestamp(8B) → "height|event|details"
 //
 // This migration is safe: it only creates new named databases.
-// No existing data is modified. The separate nina_state/data.mdb continues
-// to work for nodes below height 20000.
+// No existing data is modified.
 // ═══════════════════════════════════════════════════════════════════════════════
 void BlockchainLMDB::migrate_5_6()
 {
@@ -6035,7 +6024,7 @@ void BlockchainLMDB::migrate_5_6()
 
   MGINFO_GREEN("✓ NINA on-chain tables created in data.mdb (5 tables)");
   MGINFO_GREEN("  nina_state, nina_blocks, nina_checkpoints, nina_decisions, nina_audit");
-  MGINFO_GREEN("  These will be activated at hard fork v18 (height 20000)");
+  MGINFO_GREEN("  These are active from hard fork v18 (height 1)");
 }
 
 }  // namespace cryptonote

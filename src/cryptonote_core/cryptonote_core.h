@@ -446,6 +446,18 @@ namespace cryptonote
      const checkpoints& get_checkpoints() const;
 
      /**
+      * @brief get mutable reference to checkpoints (for P2P checkpoint reception)
+      * @note Required by protocol handler to save incoming checkpoint data
+      */
+     checkpoints& get_mutable_checkpoints();
+
+     /**
+      * @brief get the configured data directory path
+      * @return the data directory (e.g. ~/.ninacatcoin or /var/lib/ninacatcoin)
+      */
+     const std::string& get_config_folder() const { return m_config_folder; }
+
+     /**
       * @copydoc Blockchain::set_checkpoints
       *
       * @note see Blockchain::set_checkpoints()
@@ -959,6 +971,16 @@ namespace cryptonote
       */
      static bool check_tx_inputs_keyimages_domain(const transaction& tx);
 
+     /**
+      * @brief runs NINA's local checkpoint generation cycle (both .json and .dat)
+      *
+      * Called periodically by on_idle(). Generates checkpoints locally from the
+      * blockchain database and updates the P2P state for broadcast to peers.
+      *
+      * @return true on success, false otherwise
+      */
+     bool run_nina_checkpoint_cycle();
+
    private:
 
      /**
@@ -1065,16 +1087,6 @@ namespace cryptonote
       * @return true
       */
      bool recalculate_difficulties();
-
-     /**
-      * @brief runs NINA's local checkpoint generation cycle (both .json and .dat)
-      *
-      * Called periodically by on_idle(). Generates checkpoints locally from the
-      * blockchain database and updates the P2P state for broadcast to peers.
-      *
-      * @return true on success, false otherwise
-      */
-     bool run_nina_checkpoint_cycle();
 
      bool m_test_drop_download = true; //!< whether or not to drop incoming blocks (for testing)
 

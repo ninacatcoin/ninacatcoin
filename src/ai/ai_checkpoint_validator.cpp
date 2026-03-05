@@ -176,7 +176,6 @@ CheckpointValidationStatus CheckpointValidator::validateCheckpointFile(
         // Extract heights of new hashes
         uint64_t current_height = current_hashes.rbegin()->first;  // Last entry
         uint64_t previous_height = previous_hashes.rbegin()->first;
-        uint64_t expected_new_height = previous_height + 30;  // Expecting ~30 new blocks per hour
         
         std::cout << "[NINA Checkpoint] Expected height range: " << (previous_height + 1)
                   << " - " << current_height << std::endl;

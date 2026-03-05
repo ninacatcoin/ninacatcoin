@@ -1,14 +1,13 @@
 // NINA Persistent Memory Layer
 // Uses LMDB for crash-safe, ACID-compliant state persistence
 //
-// DUAL-MODE ARCHITECTURE (v17 → v18 transition):
-//   Before v18 (height < 20000): Separate LMDB at ~/.ninacatcoin/nina_state/data.mdb
-//   After  v18 (height >= 20000): Writes go to the blockchain's data.mdb directly
-//                                  via BlockchainDB::nina_*_put/get methods
+// ON-CHAIN ARCHITECTURE (v18 active from genesis):
+//   NINA writes directly to the blockchain's data.mdb from height 1
+//   via BlockchainDB::nina_*_put/get methods.
 //
-// The NINAPersistenceManager automatically routes to the correct backend
-// based on the current blockchain height. After v18, the separate nina_state/
-// database is read-only (used only for migration of pre-v18 data).
+// The NINAPersistenceManager automatically routes to on-chain DB when
+// the BlockchainDB pointer is registered. Falls back to separate LMDB
+// only during very early init before blockchain is ready.
 
 #pragma once
 
@@ -34,8 +33,8 @@
 // Full include needed — methods like nina_state_put/get are called in this header
 #include "blockchain_db/blockchain_db.h"
 
-// v18 hard fork height — NINA data moves into blockchain's data.mdb
-#define NINA_V18_ONCHAIN_HEIGHT 20000
+// v18 hard fork — NINA on-chain persistence active from height 3
+#define NINA_V18_ONCHAIN_HEIGHT 3
 
 namespace daemonize {
 
@@ -287,8 +286,8 @@ private:
         }
 
         m_open = true;
-        std::cout << "[NINA-LMDB] ✓ Database opened at " << m_db_path << "/data.mdb"
-                  << " (map size: " << (m_current_map_size / (1024*1024)) << " MB)" << std::endl;
+        MINFO("[NINA-LMDB] ✓ Database opened at " << m_db_path << "/data.mdb"
+              << " (map size: " << (m_current_map_size / (1024*1024)) << " MB)");
         return true;
     }
 
@@ -302,8 +301,8 @@ private:
         mdb_env_set_mapsize(m_env, new_size);
         m_current_map_size = new_size;
         
-        std::cout << "[NINA-LMDB] ⚡ Map size auto-grown to "
-                  << (m_current_map_size / (1024*1024)) << " MB" << std::endl;
+        MINFO("[NINA-LMDB] ⚡ Map size auto-grown to "
+              << (m_current_map_size / (1024*1024)) << " MB");
         return true;
     }
 
@@ -322,7 +321,7 @@ public:
     //
     // After the daemon initializes the blockchain, it calls set_blockchain_db()
     // to register the BlockchainDB pointer. From that point on, when the
-    // blockchain height >= NINA_V18_ONCHAIN_HEIGHT, all writes go to the
+    // blockchain height >= NINA_V18_ONCHAIN_HEIGHT (1), all writes go to the
     // blockchain's data.mdb instead of the separate nina_state/data.mdb.
     //
     // This is a one-time registration — the pointer remains valid for the
@@ -331,7 +330,7 @@ public:
     void set_blockchain_db(cryptonote::BlockchainDB* db) {
         m_blockchain_db = db;
         if (db) {
-            std::cout << "[NINA-LMDB] ✓ Blockchain DB registered for v18 on-chain persistence" << std::endl;
+            MINFO("[NINA-LMDB] ✓ Blockchain DB registered for v18 on-chain persistence");
         }
     }
 
@@ -356,7 +355,7 @@ public:
     
     // =========================================================================
     // Save current NINA state (single ACID transaction)
-    // Routes to blockchain's data.mdb after v18 (height >= 20000)
+    // Routes to blockchain's data.mdb (on-chain from height 1)
     // =========================================================================
     bool persist_nina_state(
         uint64_t current_height,
@@ -378,14 +377,14 @@ public:
             return persist_nina_state_onchain(current_height, block_history, stats);
         }
 
-        // Pre-v18: Write to separate nina_state/data.mdb
+        // Fallback: Write to separate nina_state/data.mdb if on-chain not available
         std::lock_guard<std::mutex> lock(m_db_mutex);
         if (!open_env()) return false;
 
         MDB_txn* txn = nullptr;
         int rc = mdb_txn_begin(m_env, nullptr, 0, &txn);
         if (rc) {
-            std::cerr << "[NINA-LMDB] ERROR begin txn: " << mdb_strerror(rc) << std::endl;
+            MERROR("[NINA-LMDB] ERROR begin txn: " << mdb_strerror(rc));
             return false;
         }
 
@@ -393,7 +392,7 @@ public:
             // 1. Write statistics
             if (!lmdb_put_str(txn, m_dbi_stats, "current", stats.serialize())) {
                 mdb_txn_abort(txn);
-                std::cerr << "[NINA-LMDB] ERROR: Failed to write stats" << std::endl;
+                MERROR("[NINA-LMDB] ERROR: Failed to write stats");
                 return false;
             }
 
@@ -401,7 +400,7 @@ public:
             for (const auto& [h, rec] : block_history) {
                 if (!lmdb_put_u64(txn, m_dbi_blocks, h, rec.serialize())) {
                     mdb_txn_abort(txn);
-                    std::cerr << "[NINA-LMDB] ERROR: Failed to write block " << h << std::endl;
+                    MERROR("[NINA-LMDB] ERROR: Failed to write block " << h);
                     return false;
                 }
             }
@@ -419,34 +418,34 @@ public:
             rc = mdb_txn_commit(txn);
             if (rc == MDB_MAP_FULL) {
                 // Auto-grow and retry once
-                std::cout << "[NINA-LMDB] Map full, auto-growing..." << std::endl;
+                MWARNING("[NINA-LMDB] Map full, auto-growing...");
                 if (grow_map_size()) {
                     return persist_nina_state(current_height, block_history, stats);
                 }
-                std::cerr << "[NINA-LMDB] ERROR: Failed to grow map size" << std::endl;
+                MERROR("[NINA-LMDB] ERROR: Failed to grow map size");
                 return false;
             }
             if (rc) {
-                std::cerr << "[NINA-LMDB] ERROR commit: " << mdb_strerror(rc) << std::endl;
+                MERROR("[NINA-LMDB] ERROR commit: " << mdb_strerror(rc));
                 return false;
             }
 
             last_persist_time = std::time(nullptr);
             records_saved += block_history.size();
 
-            std::cout << "[NINA-LMDB] ✓ State saved at height " << current_height
-                      << " (" << block_history.size() << " block records)" << std::endl;
+            MINFO("[NINA-LMDB] ✓ State saved at height " << current_height
+                  << " (" << block_history.size() << " block records, separate DB)");
             return true;
         } catch (const std::exception& e) {
             mdb_txn_abort(txn);
-            std::cerr << "[NINA-LMDB] ERROR: " << e.what() << std::endl;
+            MERROR("[NINA-LMDB] ERROR: " << e.what());
             return false;
         }
     }
     
     // =========================================================================
     // Load previous state on startup (read-only transaction)
-    // Routes to blockchain's data.mdb after v18 (height >= 20000)
+    // Routes to blockchain's data.mdb (on-chain from height 1)
     // =========================================================================
     bool load_nina_state(
         uint64_t& out_last_height,
@@ -461,12 +460,12 @@ public:
         if (m_blockchain_db) {
             bool loaded = load_nina_state_onchain(out_last_height, out_block_history, out_stats);
             if (loaded && out_last_height >= NINA_V18_ONCHAIN_HEIGHT) {
-                return true;  // On-chain data exists and is post-v18
+                return true;  // On-chain data loaded successfully
             }
-            // Fall through: either no on-chain data or pre-v18, try separate DB
+            // Fall through: no on-chain data yet, try separate DB
         }
 
-        // Pre-v18 or first boot: read from separate nina_state/data.mdb
+        // Fallback: first boot before on-chain data exists
         std::lock_guard<std::mutex> lock(m_db_mutex);
         if (!open_env()) return false;
 
@@ -479,7 +478,7 @@ public:
             std::string meta_str;
             if (!lmdb_get_str(txn, m_dbi_meta, "current", meta_str)) {
                 mdb_txn_abort(txn);
-                std::cout << "[NINA-LMDB] No previous state found (first run)" << std::endl;
+                MINFO("[NINA-LMDB] No previous state found (first run)");
                 return false;
             }
             {
@@ -492,9 +491,9 @@ public:
             std::string stats_str;
             if (lmdb_get_str(txn, m_dbi_stats, "current", stats_str)) {
                 out_stats = PersistedStatistics::deserialize(stats_str);
-                std::cout << "[NINA-LMDB] ✓ Statistics loaded (blocks=" 
-                          << out_stats.total_blocks_processed
-                          << ", sessions=" << out_stats.session_count << ")" << std::endl;
+                MINFO("[NINA-LMDB] ✓ Statistics loaded (blocks=" 
+                      << out_stats.total_blocks_processed
+                      << ", sessions=" << out_stats.session_count << ")");
             }
 
             // 3. Read all block records via cursor
@@ -510,19 +509,19 @@ public:
                     }
                 }
                 mdb_cursor_close(cursor);
-                std::cout << "[NINA-LMDB] ✓ Loaded " << out_block_history.size() 
-                          << " block records" << std::endl;
+                MINFO("[NINA-LMDB] ✓ Loaded " << out_block_history.size() 
+                      << " block records");
             }
 
             mdb_txn_abort(txn);  // read-only: abort is fine
 
             records_loaded += out_block_history.size();
-            std::cout << "[NINA-LMDB] ✓ Recovery complete (last height: " 
-                      << out_last_height << ")" << std::endl;
+            MINFO("[NINA-LMDB] ✓ Recovery complete (last height: " 
+                  << out_last_height << ")");
             return true;
         } catch (const std::exception& e) {
             mdb_txn_abort(txn);
-            std::cerr << "[NINA-LMDB] Warning: Could not load state: " << e.what() << std::endl;
+            MWARNING("[NINA-LMDB] Warning: Could not load state: " << e.what());
             return false;
         }
     }
@@ -622,7 +621,13 @@ public:
         val << height << "|" << event_type << "|" << details;
 
         // V18 on-chain routing
-        if (use_onchain_db(height)) {
+        // If caller passed height=0 but blockchain is available, use actual chain height
+        // to decide routing (many callers pass 0 for non-height-specific events)
+        uint64_t routing_height = height;
+        if (routing_height == 0 && m_blockchain_db) {
+            try { routing_height = m_blockchain_db->height(); } catch (...) {}
+        }
+        if (use_onchain_db(routing_height)) {
             try {
                 m_blockchain_db->nina_audit_put(key, val.str());
                 return;
@@ -688,7 +693,7 @@ private:
     
     NINAPersistenceManager() : m_db_path(resolve_db_path()) {
         // open_env() is called lazily on first use
-        std::cout << "[NINA-LMDB] Manager initialized (db: " << m_db_path << "/data.mdb)" << std::endl;
+        MINFO("[NINA-LMDB] Manager initialized (db: " << m_db_path << "/data.mdb)");
     }
 
     // =========================================================================
@@ -710,19 +715,40 @@ private:
                 m_blockchain_db->nina_state_put("meta_current", meta.str());
             }
 
-            // 3. Write block records to nina_blocks table
+            // 3. Write per-height state snapshot (key = "state_<height>")
+            //    This creates an immutable record at every block height
+            {
+                std::string height_key = "state_" + std::to_string(current_height);
+                m_blockchain_db->nina_state_put(height_key, stats.serialize());
+            }
+
+            // 4. Write block records to nina_blocks table (integer-keyed)
             for (const auto& [h, rec] : block_history) {
                 m_blockchain_db->nina_block_put(h, rec.serialize());
+            }
+
+            // 5. Write audit entry for this on-chain persist
+            {
+                uint64_t audit_key = static_cast<uint64_t>(std::time(nullptr)) * 1000000ULL +
+                                     (current_height % 1000000ULL);
+                std::stringstream audit_val;
+                audit_val << current_height << "|ONCHAIN_PERSIST|blocks="
+                          << block_history.size()
+                          << ",health=" << stats.network_health_average
+                          << ",confidence=" << stats.average_prediction_accuracy
+                          << ",sessions=" << stats.session_count;
+                m_blockchain_db->nina_audit_put(audit_key, audit_val.str());
             }
 
             last_persist_time = std::time(nullptr);
             records_saved += block_history.size();
 
-            std::cout << "[NINA-LMDB-ONCHAIN] ✓ State saved ON-CHAIN at height " << current_height
-                      << " (" << block_history.size() << " block records, v18 mode)" << std::endl;
+            MINFO("[NINA-ONCHAIN] ✓ Memory saved ON-CHAIN at height " << current_height
+                  << " (" << block_history.size() << " block records, health="
+                  << stats.network_health_average << ")");
             return true;
         } catch (const std::exception& e) {
-            std::cerr << "[NINA-LMDB-ONCHAIN] ERROR: " << e.what() << std::endl;
+            MERROR("[NINA-ONCHAIN] ERROR persisting at height " << current_height << ": " << e.what());
             return false;
         }
     }
@@ -748,9 +774,9 @@ private:
             std::string stats_str;
             if (m_blockchain_db->nina_state_get("current", stats_str)) {
                 out_stats = PersistedStatistics::deserialize(stats_str);
-                std::cout << "[NINA-LMDB-ONCHAIN] ✓ Statistics loaded from blockchain (blocks="
-                          << out_stats.total_blocks_processed
-                          << ", sessions=" << out_stats.session_count << ")" << std::endl;
+                MINFO("[NINA-ONCHAIN] ✓ Statistics loaded from blockchain (blocks="
+                      << out_stats.total_blocks_processed
+                      << ", sessions=" << out_stats.session_count << ")");
             }
 
             // 3. Read all block records via iterator
@@ -761,12 +787,12 @@ private:
                 });
 
             records_loaded += out_block_history.size();
-            std::cout << "[NINA-LMDB-ONCHAIN] ✓ Recovery complete from blockchain data.mdb"
-                      << " (last height: " << out_last_height 
-                      << ", " << out_block_history.size() << " block records)" << std::endl;
+            MINFO("[NINA-ONCHAIN] ✓ Recovery complete from blockchain data.mdb"
+                  << " (last height: " << out_last_height 
+                  << ", " << out_block_history.size() << " block records)");
             return true;
         } catch (const std::exception& e) {
-            std::cerr << "[NINA-LMDB-ONCHAIN] Warning: " << e.what() << std::endl;
+            MWARNING("[NINA-ONCHAIN] Recovery warning: " << e.what());
             return false;
         }
     }
@@ -774,7 +800,7 @@ private:
     /**
      * One-time migration: copy all existing NINA data from the separate
      * nina_state/data.mdb into the blockchain's NINA tables.
-     * Called automatically when height first reaches NINA_V18_ONCHAIN_HEIGHT.
+     * Called automatically when height first reaches NINA_V18_ONCHAIN_HEIGHT (1).
      * A sentinel key "v18_migrated" is written to prevent re-running.
      */
     bool migrate_nina_data_to_blockchain() {
@@ -783,12 +809,12 @@ private:
             // Check sentinel — already migrated?
             std::string sentinel;
             if (m_blockchain_db->nina_state_get("v18_migrated", sentinel) && sentinel == "1") {
-                std::cout << "[NINA-V18-MIGRATE] Already migrated, skipping." << std::endl;
+                MINFO("[NINA-V18-MIGRATE] Already migrated, skipping.");
                 return true;
             }
 
-            std::cout << "[NINA-V18-MIGRATE] ═══════════════════════════════════════" << std::endl;
-            std::cout << "[NINA-V18-MIGRATE] Starting one-time migration to blockchain LMDB" << std::endl;
+            MINFO("[NINA-V18-MIGRATE] ═══════════════════════════════════════");
+            MINFO("[NINA-V18-MIGRATE] Starting one-time migration to blockchain LMDB");
 
             // 1. Load all data from separate DB
             uint64_t last_height = 0;
@@ -805,19 +831,19 @@ private:
                     m_blockchain_db->nina_block_put(h, rec.serialize());
                 }
 
-                std::cout << "[NINA-V18-MIGRATE] ✓ Copied " << blocks.size()
-                          << " block records + stats" << std::endl;
+                MINFO("[NINA-V18-MIGRATE] ✓ Copied " << blocks.size()
+                      << " block records + stats");
             } else {
-                std::cout << "[NINA-V18-MIGRATE] No data in separate DB (clean start)" << std::endl;
+                MINFO("[NINA-V18-MIGRATE] No data in separate DB (clean start)");
             }
 
             // 4. Set sentinel
             m_blockchain_db->nina_state_put("v18_migrated", "1");
-            std::cout << "[NINA-V18-MIGRATE] ✓ Migration complete!" << std::endl;
-            std::cout << "[NINA-V18-MIGRATE] ═══════════════════════════════════════" << std::endl;
+            MINFO("[NINA-V18-MIGRATE] ✓ Migration complete!");
+            MINFO("[NINA-V18-MIGRATE] ═══════════════════════════════════════");
             return true;
         } catch (const std::exception& e) {
-            std::cerr << "[NINA-V18-MIGRATE] ERROR: " << e.what() << std::endl;
+            MERROR("[NINA-V18-MIGRATE] ERROR: " << e.what());
             return false;
         }
     }
@@ -890,9 +916,9 @@ inline bool nina_load_persistent_state() {
     PersistedStatistics stats{};
     
     if (mgr.load_nina_state(last_height, history, stats)) {
-        std::cout << "[NINA-LMDB] ✓ Memory restored from LMDB" << std::endl;
-        std::cout << "[NINA-LMDB]   Last height: " << last_height << std::endl;
-        std::cout << "[NINA-LMDB]   Total sessions: " << stats.session_count << std::endl;
+        MINFO("[NINA-LMDB] ✓ Memory restored from LMDB");
+        MINFO("[NINA-LMDB]   Last height: " << last_height);
+        MINFO("[NINA-LMDB]   Total sessions: " << stats.session_count);
         return true;
     }
     
@@ -920,7 +946,7 @@ inline void nina_save_persistent_state(
         // First run or corrupted state — initialize with safe defaults
         existing_stats = PersistedStatistics{};
         existing_stats.session_count = 0;
-        std::cout << "[NINA-LMDB] No previous state to merge — starting fresh" << std::endl;
+        MINFO("[NINA-LMDB] No previous state to merge — starting fresh");
     }
     
     PersistedStatistics stats{
@@ -938,9 +964,9 @@ inline void nina_save_persistent_state(
     mgr.persist_nina_state(current_height, new_block_records, stats);
     
     if (!new_block_records.empty()) {
-        std::cout << "[NINA-LMDB] Persisted " << new_block_records.size()
-                  << " new block records (total in DB: ~" 
-                  << (existing_history.size() + new_block_records.size()) << ")" << std::endl;
+        MINFO("[NINA-LMDB] Persisted " << new_block_records.size()
+              << " block records at height " << current_height
+              << (mgr.use_onchain_db(current_height) ? " (ON-CHAIN)" : " (separate DB)"));
     }
 }
 
@@ -954,7 +980,7 @@ inline void nina_audit_log(
 
 /**
  * Check if NINA should use on-chain DB for standalone persistence functions.
- * Returns true only when BlockchainDB is registered AND current chain height >= v18.
+ * Returns true only when BlockchainDB is registered AND current chain height >= 1.
  */
 inline bool nina_should_use_onchain() {
     auto* bdb = NINAPersistenceManager::instance().get_blockchain_db();
@@ -988,7 +1014,7 @@ inline bool persist_memory_system_data(
                     + std::to_string(num_peers) + " peers saved to blockchain LMDB");
                 return true;
             } catch (const std::exception& e) {
-                std::cerr << "[NINA-MEMORY-V18] On-chain persist failed, falling back: " << e.what() << std::endl;
+                MWARNING("[NINA-MEMORY-V18] On-chain persist failed, falling back: " << e.what());
             }
         }
 
@@ -1052,7 +1078,7 @@ inline bool load_memory_system_data(
                 bool got_patterns = bdb->nina_state_get("memory_attack_patterns", out_patterns);
                 bool got_peers = bdb->nina_state_get("memory_peer_behaviors", out_peers);
                 if (got_patterns || got_peers) {
-                    std::cout << "[NINA-MEMORY-V18] ✓ Memory data loaded from blockchain LMDB" << std::endl;
+                    MINFO("[NINA-MEMORY-V18] ✓ Memory data loaded from blockchain LMDB");
                     return true;
                 }
             } catch (...) {
@@ -1123,11 +1149,11 @@ inline bool persist_learning_module_data(
                 bdb->nina_state_put("learning_metrics", value);
                 nina_audit_log(0, "LEARNING_PERSIST_ONCHAIN",
                     std::to_string(metrics->size()) + " metrics saved to blockchain LMDB");
-                std::cout << "[NINA-LMDB-V18] ✓ Learning metrics persisted on-chain ("
-                          << metrics->size() << " metrics)" << std::endl;
+                MINFO("[NINA-LMDB-V18] ✓ Learning metrics persisted on-chain ("
+                      << metrics->size() << " metrics)");
                 return true;
             } catch (const std::exception& e) {
-                std::cerr << "[NINA-LMDB-V18] On-chain persist failed, falling back: " << e.what() << std::endl;
+                MWARNING("[NINA-LMDB-V18] On-chain persist failed, falling back: " << e.what());
                 // Fall through to separate DB
             }
         }
@@ -1160,10 +1186,10 @@ inline bool persist_learning_module_data(
 
         nina_audit_log(0, "LEARNING_PERSIST",
             std::to_string(metrics->size()) + " metrics saved to LMDB");
-        std::cout << "[NINA-LMDB] \xe2\x9c\x93 Learning metrics persisted (" << metrics->size() << " metrics)" << std::endl;
+        MINFO("[NINA-LMDB] ✓ Learning metrics persisted (" << metrics->size() << " metrics)");
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[NINA-LMDB] ERROR persisting learning data: " << e.what() << std::endl;
+        MERROR("[NINA-LMDB] ERROR persisting learning data: " << e.what());
         return false;
     }
 }
@@ -1179,8 +1205,8 @@ inline bool load_learning_module_data(std::string& out_data) {
                 std::string data;
                 if (bdb->nina_state_get("learning_metrics", data) && !data.empty()) {
                     out_data = std::move(data);
-                    std::cout << "[NINA-LMDB-V18] ✓ Learning metrics loaded from blockchain LMDB ("
-                              << out_data.size() << " bytes)" << std::endl;
+                    MINFO("[NINA-LMDB-V18] ✓ Learning metrics loaded from blockchain LMDB ("
+                          << out_data.size() << " bytes)");
                     return true;
                 }
             } catch (...) {
@@ -1209,7 +1235,7 @@ inline bool load_learning_module_data(std::string& out_data) {
         if (rc == 0) {
             out_data.assign(static_cast<const char*>(v.mv_data), v.mv_size);
             mdb_txn_abort(txn);
-            std::cout << "[NINA-LMDB] \xe2\x9c\x93 Learning metrics loaded (" << out_data.size() << " bytes)" << std::endl;
+            MINFO("[NINA-LMDB] ✓ Learning metrics loaded (" << out_data.size() << " bytes)");
             return true;
         }
         mdb_txn_abort(txn);
@@ -1239,7 +1265,7 @@ inline bool persist_suggestion_engine_data(
                     + std::to_string(num_history) + " history saved to blockchain LMDB");
                 return true;
             } catch (const std::exception& e) {
-                std::cerr << "[NINA-SUGGEST-V18] On-chain persist failed, falling back: " << e.what() << std::endl;
+                MWARNING("[NINA-SUGGEST-V18] On-chain persist failed, falling back: " << e.what());
             }
         }
 
@@ -1301,7 +1327,7 @@ inline bool load_suggestion_engine_data(
                 bool got_pending = bdb->nina_state_get("suggestion_pending", out_pending);
                 bool got_history = bdb->nina_state_get("suggestion_history", out_history);
                 if (got_pending || got_history) {
-                    std::cout << "[NINA-SUGGEST-V18] ✓ Suggestions loaded from blockchain LMDB" << std::endl;
+                    MINFO("[NINA-SUGGEST-V18] ✓ Suggestions loaded from blockchain LMDB");
                     return true;
                 }
             } catch (...) {}
@@ -1492,13 +1518,13 @@ inline bool import_nina_state_from_p2p(const std::string& data, uint64_t peer_he
         uint64_t new_height = std::max(our_height, peer_last_height);
         mgr.persist_nina_state(new_height, our_history, merged_stats);
 
-        std::cout << "[NINA-P2P-SYNC] \xe2\x9c\x93 Imported " << imported << " block records from peer"
-                  << " (our height: " << our_height << " -> " << new_height << ")" << std::endl;
+        MINFO("[NINA-P2P-SYNC] ✓ Imported " << imported << " block records from peer"
+              << " (our height: " << our_height << " -> " << new_height << ")");
         nina_audit_log(new_height, "P2P_STATE_IMPORT",
             "Imported " + std::to_string(imported) + " records from peer at height " + std::to_string(peer_height));
         return true;
     } catch (const std::exception& e) {
-        std::cerr << "[NINA-P2P-SYNC] ERROR importing state: " << e.what() << std::endl;
+        MERROR("[NINA-P2P-SYNC] ERROR importing state: " << e.what());
         return false;
     }
 }

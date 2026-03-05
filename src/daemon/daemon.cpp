@@ -193,18 +193,18 @@ t_daemon::t_daemon(
   MINFO("  [3/3] IA Security Module monitoring daemon startup...");
   MINFO("═══════════════════════════════════════════════════════════════");
   
-  // Initialize NINA Advanced AI Framework (6 Tiers)
-  MINFO("\n[Daemon] Initializing NINA Advanced AI Framework...");
-  daemonize::initialize_nina_advanced();
-
-  // Register blockchain DB pointer for NINA on-chain persistence (v18+)
+  // Register blockchain DB pointer BEFORE NINA init (so recovery reads on-chain data)
   {
     auto& blockchain = mp_internals->core.get().get_blockchain_storage();
     auto* db = &blockchain.get_db();
     NINAPersistenceManager::instance().set_blockchain_db(db);
     ninacatcoin_ai::NINaPersistenceEngine::set_blockchain_db(db);
-    MINFO("[NINA-V18] Blockchain DB registered for on-chain persistence (active at height " << NINA_V18_ONCHAIN_HEIGHT << ")");
+    MINFO("[NINA-V18] Blockchain DB registered for on-chain persistence (active from height 1)");
   }
+
+  // Initialize NINA Advanced AI Framework (6 Tiers)
+  MINFO("\n[Daemon] Initializing NINA Advanced AI Framework...");
+  daemonize::initialize_nina_advanced();
 
   MINFO("[Daemon] NINA Advanced AI Framework Ready!\n");
 
@@ -247,18 +247,25 @@ t_daemon::~t_daemon()
   // Shutdown IA module gracefully when daemon exits
   if (mp_internals)
   {
-    // Save NINA's persistent state before shutdown
-    MINFO("[NINA-PERSISTENCE] Saving final state before shutdown...");
-    nina_save_persistent_state(0, 0, 0, 0.94, 0.85, 88.5);
-    MINFO("[NINA-PERSISTENCE] ✓ Final state persisted to LMDB");
+    // Get real blockchain height for on-chain persistence
+    uint64_t shutdown_height = 0;
+    try {
+      shutdown_height = mp_internals->core.get().get_blockchain_storage().get_current_blockchain_height();
+      if (shutdown_height > 0) --shutdown_height; // height is tip, we want last block index
+    } catch (...) { shutdown_height = 0; }
+
+    // Save NINA's persistent state before shutdown (uses real height for on-chain routing)
+    MINFO("[NINA-PERSISTENCE] Saving final state before shutdown at height " << shutdown_height << "...");
+    nina_save_persistent_state(shutdown_height, 0, 0, 0.94, 0.85, 88.5);
+    MINFO("[NINA-PERSISTENCE] ✓ Final state persisted to " << (shutdown_height >= NINA_V18_ONCHAIN_HEIGHT ? "BLOCKCHAIN (on-chain)" : "separate LMDB"));
 
     // Shutdown NINA LLM Engine (free model RAM)
     MINFO("[NINA-LLM] Shutting down LLM engine...");
     ninacatcoin_ai::NinaLLMEngine::getInstance().shutdown();
     MINFO("[NINA-LLM] ✓ LLM engine shut down, RAM freed");
     
-    // Log shutdown event
-    nina_audit_log(0, "DAEMON_SHUTDOWN", "NINA state saved and daemon shutting down gracefully");
+    // Log shutdown event with real height
+    nina_audit_log(shutdown_height, "DAEMON_SHUTDOWN", "NINA state saved and daemon shutting down gracefully at height " + std::to_string(shutdown_height));
     
     MINFO("[Daemon] Shutting down IA Security Module...");
     IAModuleIntegration::shutdown_ia_module();

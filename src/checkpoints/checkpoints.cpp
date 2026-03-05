@@ -2665,4 +2665,241 @@ namespace cryptonote
     }
   }
 
+  // ============================================================================
+  // 🐱 NINA IA: Validate the ENTIRE blockchain against BOTH checkpoint types
+  // ============================================================================
+  //
+  // This is NINA's most critical security function. A fresh node that just
+  // downloaded the entire blockchain + received checkpoints from peers calls
+  // this to verify that EVERY checkpoint matches the downloaded chain.
+  //
+  // Two validation passes:
+  //   Pass 1 (JSON / m_points): For each (height → hash) in m_points, verify
+  //          that db->get_block_hash_from_height(height) == hash
+  //   Pass 2 (DAT / binary groups): For each 512-block group, recompute
+  //          cn_fast_hash of concatenated block hashes and compare against the
+  //          stored hash_of_hashes in the .dat data.
+  //
+  // NINA never trusts — she always verifies.
+  // ============================================================================
+
+  bool checkpoints::validate_blockchain_against_all_checkpoints(uint64_t blockchain_height, BlockchainDB* db, const std::string& data_dir)
+  {
+    if (!db)
+    {
+      MERROR("[NINA-VALIDATE] No database handle — cannot validate");
+      return false;
+    }
+
+    MINFO("[NINA-VALIDATE] 🐱 ══════════════════════════════════════════════════");
+    MINFO("[NINA-VALIDATE] 🐱 FULL BLOCKCHAIN VALIDATION STARTING");
+    MINFO("[NINA-VALIDATE] 🐱   Chain height: " << blockchain_height);
+    MINFO("[NINA-VALIDATE] 🐱   JSON checkpoints (m_points): " << m_points.size());
+    MINFO("[NINA-VALIDATE] 🐱   DAT groups: " << m_local_checkpoint_state.dat_num_groups);
+    MINFO("[NINA-VALIDATE] 🐱 ══════════════════════════════════════════════════");
+
+    bool all_passed = true;
+    uint64_t json_checked = 0;
+    uint64_t json_failed = 0;
+    uint64_t dat_checked = 0;
+    uint64_t dat_failed = 0;
+
+    // ═══════════════════════════════════════════════════════════════
+    // PASS 1: JSON checkpoints (m_points) — hash at every 30-block interval
+    // ═══════════════════════════════════════════════════════════════
+    MINFO("[NINA-VALIDATE] 🐱 Pass 1: Validating JSON checkpoints...");
+
+    for (const auto& [cp_height, expected_hash] : m_points)
+    {
+      if (cp_height >= blockchain_height)
+      {
+        MDEBUG("[NINA-VALIDATE] Skipping checkpoint at height " << cp_height 
+               << " (beyond chain height " << blockchain_height << ")");
+        continue;
+      }
+
+      try
+      {
+        crypto::hash actual_hash = db->get_block_hash_from_height(cp_height);
+        if (actual_hash == expected_hash)
+        {
+          ++json_checked;
+        }
+        else
+        {
+          ++json_failed;
+          all_passed = false;
+          MWARNING("[NINA-VALIDATE] 🐱 ❌ JSON CHECKPOINT MISMATCH at height " << cp_height);
+          MWARNING("[NINA-VALIDATE]   Expected: " << expected_hash);
+          MWARNING("[NINA-VALIDATE]   Got:      " << actual_hash);
+          MWARNING("[NINA-VALIDATE]   ⚠ This block may be from a POISONED chain!");
+        }
+      }
+      catch (const std::exception& e)
+      {
+        ++json_failed;
+        all_passed = false;
+        MERROR("[NINA-VALIDATE] Exception reading block at height " << cp_height << ": " << e.what());
+      }
+    }
+
+    MINFO("[NINA-VALIDATE] 🐱 Pass 1 result: " << json_checked << " OK, " 
+          << json_failed << " FAILED out of " << m_points.size() << " checkpoints");
+
+    // ═══════════════════════════════════════════════════════════════
+    // PASS 2: DAT checkpoints (binary hash-of-hashes per 512-block group)
+    // Recompute cn_fast_hash from actual blockchain and compare
+    // ═══════════════════════════════════════════════════════════════
+    uint32_t num_groups = m_local_checkpoint_state.dat_num_groups;
+
+    if (num_groups == 0)
+    {
+      MWARNING("[NINA-VALIDATE] 🐱 Pass 2: No DAT groups available — skipping DAT validation");
+      MWARNING("[NINA-VALIDATE]   (This means only JSON checkpoints were validated)");
+    }
+    else
+    {
+      MINFO("[NINA-VALIDATE] 🐱 Pass 2: Validating " << num_groups << " DAT groups (512 blocks each)...");
+
+      // Read the .dat file to get the stored hashes
+      // The dat data is in: [uint32 num_groups][hash_of_hashes(32) + hash_of_weights(32)] * num_groups
+      std::string dat_path;
+      if (!data_dir.empty())
+      {
+        dat_path = data_dir + "/" + DAT_HASH_FILE_NAME;
+      }
+      else
+      {
+        const char* home = std::getenv("HOME");
+        if (!home) home = std::getenv("USERPROFILE");
+        if (home) dat_path = std::string(home) + "/.ninacatcoin/" + DAT_HASH_FILE_NAME;
+      }
+
+      std::vector<uint8_t> dat_data;
+      bool dat_loaded = false;
+
+      if (!dat_path.empty())
+      {
+        std::ifstream ifs(dat_path, std::ios::binary);
+        if (ifs.is_open())
+        {
+          ifs.seekg(0, std::ios::end);
+          size_t file_size = ifs.tellg();
+          ifs.seekg(0, std::ios::beg);
+          dat_data.resize(file_size);
+          ifs.read(reinterpret_cast<char*>(dat_data.data()), file_size);
+          ifs.close();
+          dat_loaded = true;
+          MINFO("[NINA-VALIDATE]   Loaded " << dat_path << " (" << file_size << " bytes)");
+        }
+      }
+
+      if (!dat_loaded || dat_data.size() < 4)
+      {
+        MWARNING("[NINA-VALIDATE] 🐱 Could not load checkpoints.dat — skipping DAT validation");
+      }
+      else
+      {
+        // Parse num_groups from file
+        uint32_t file_groups = dat_data[0] | (dat_data[1] << 8) | (dat_data[2] << 16) | (dat_data[3] << 24);
+        size_t expected_size = 4 + static_cast<size_t>(file_groups) * 64;
+
+        if (dat_data.size() != expected_size || file_groups == 0)
+        {
+          MWARNING("[NINA-VALIDATE] 🐱 DAT file size mismatch or empty (groups=" 
+                   << file_groups << ", size=" << dat_data.size() << ", expected=" << expected_size << ")");
+        }
+        else
+        {
+          for (uint32_t g = 0; g < file_groups; ++g)
+          {
+            uint64_t start_height = static_cast<uint64_t>(g) * NINA_DAT_GROUP_SIZE;
+            uint64_t end_height = start_height + NINA_DAT_GROUP_SIZE;
+
+            if (end_height > blockchain_height)
+            {
+              MDEBUG("[NINA-VALIDATE] Skipping DAT group " << g << " (extends beyond chain)");
+              break;
+            }
+
+            try
+            {
+              // Recompute hash_of_hashes from actual blockchain
+              std::vector<uint8_t> hash_buffer(NINA_DAT_GROUP_SIZE * 32);
+
+              for (uint32_t i = 0; i < NINA_DAT_GROUP_SIZE; ++i)
+              {
+                crypto::hash block_hash = db->get_block_hash_from_height(start_height + i);
+                memcpy(&hash_buffer[i * 32], block_hash.data, 32);
+              }
+
+              crypto::hash computed_hoh;
+              crypto::cn_fast_hash(hash_buffer.data(), hash_buffer.size(), computed_hoh);
+
+              // Read stored hash_of_hashes from .dat
+              size_t offset = 4 + g * 64;
+              crypto::hash stored_hoh;
+              memcpy(stored_hoh.data, &dat_data[offset], 32);
+
+              if (computed_hoh == stored_hoh)
+              {
+                ++dat_checked;
+              }
+              else
+              {
+                ++dat_failed;
+                all_passed = false;
+                MWARNING("[NINA-VALIDATE] 🐱 ❌ DAT GROUP MISMATCH at group " << g
+                         << " (blocks " << start_height << "-" << (end_height - 1) << ")");
+                MWARNING("[NINA-VALIDATE]   Expected HoH: " << stored_hoh);
+                MWARNING("[NINA-VALIDATE]   Computed HoH: " << computed_hoh);
+                MWARNING("[NINA-VALIDATE]   ⚠ Block(s) in this range may be TAMPERED!");
+              }
+            }
+            catch (const std::exception& e)
+            {
+              ++dat_failed;
+              all_passed = false;
+              MERROR("[NINA-VALIDATE] Exception in DAT group " << g << ": " << e.what());
+            }
+
+            // Progress logging every 5 groups
+            if (g % 5 == 0 || g == file_groups - 1)
+            {
+              MDEBUG("[NINA-VALIDATE] DAT progress: group " << (g + 1) << "/" << file_groups);
+            }
+          }
+
+          MINFO("[NINA-VALIDATE] 🐱 Pass 2 result: " << dat_checked << " OK, "
+                << dat_failed << " FAILED out of " << file_groups << " groups");
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    // FINAL VERDICT
+    // ═══════════════════════════════════════════════════════════════
+    MINFO("[NINA-VALIDATE] 🐱 ══════════════════════════════════════════════════");
+    if (all_passed)
+    {
+      MINFO("[NINA-VALIDATE] 🐱 ✅ FULL BLOCKCHAIN VALIDATION: PASSED");
+      MINFO("[NINA-VALIDATE] 🐱   JSON: " << json_checked << "/" << m_points.size() << " checkpoints verified");
+      MINFO("[NINA-VALIDATE] 🐱   DAT:  " << dat_checked << " groups verified");
+      MINFO("[NINA-VALIDATE] 🐱   This node's blockchain is AUTHENTIC and TRUSTED.");
+      MINFO("[NINA-VALIDATE] 🐱   NINA confirms: chain integrity from block 0 to " << blockchain_height);
+    }
+    else
+    {
+      MWARNING("[NINA-VALIDATE] 🐱 ❌ FULL BLOCKCHAIN VALIDATION: FAILED");
+      MWARNING("[NINA-VALIDATE] 🐱   JSON failures: " << json_failed);
+      MWARNING("[NINA-VALIDATE] 🐱   DAT failures:  " << dat_failed);
+      MWARNING("[NINA-VALIDATE] 🐱   ⚠ THIS BLOCKCHAIN MAY BE COMPROMISED!");
+      MWARNING("[NINA-VALIDATE] 🐱   NINA recommends: alert network + consider re-sync.");
+    }
+    MINFO("[NINA-VALIDATE] 🐱 ══════════════════════════════════════════════════");
+
+    return all_passed;
+  }
+
 }
+

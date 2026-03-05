@@ -41,6 +41,7 @@ using namespace epee;
 
 #include <array>
 #include <cstring>
+#include <functional>
 #include "crypto/hash.h"
 #include "int-util.h"
 #include "common/dns_utils.h"
@@ -84,37 +85,6 @@ namespace cryptonote {
     return CRYPTONOTE_MAX_TX_SIZE;
   }
   //-----------------------------------------------------------------------------------------------
-  // ===== NINACATCOIN RANDOMX DUAL-MODE HELPERS =====
-  // These functions implement the Dual-Mode CPU/GPU mining strategy:
-  // - 80% of blocks: Standard RandomX (CPU optimized)
-  // - 20% of blocks: GPU-penalty mode (RANDOMX_FLAG_SECURE, no JIT)
-  
-  /// \brief Detect if block uses GPU-penalty mode
-  /// \param height Block height
-  /// \return true if height % 5 == 0 (every 5th block)
-  static bool is_gpu_penalty_block(size_t height) {
-    // Every 5th block = GPU penalty mode
-    // This causes GPU mining to have only 20% efficiency vs CPU
-    return (height % 5) == 0;
-  }
-  
-  /// \brief Calculate variable RandomX dataset size based on network hashrate
-  /// \param network_hashrate Network total hashrate in H/s
-  /// \return Dataset size in bytes (2GB-4GB range)
-  static uint64_t calculate_rx_dataset_size(uint64_t network_hashrate) {
-    // Base: 2GB
-    // Grows: +10MB per TH/s of network hashrate
-    // Max: 4GB
-    uint64_t size = RANDOMX_DATASET_BASE_SIZE;
-    uint64_t additional = (network_hashrate / 1000000000000ULL) * RANDOMX_DATASET_GROWTH;
-    
-    if (size + additional > RANDOMX_DATASET_MAX_SIZE) {
-      return RANDOMX_DATASET_MAX_SIZE;
-    }
-    return size + additional;
-  }
-  
-  //-----------------------------------------------------------------------------------------------
   bool get_block_reward(
     size_t median_weight,
     size_t current_block_weight,
@@ -122,33 +92,13 @@ namespace cryptonote {
     uint64_t &reward,
     uint8_t version,
     size_t height,
-    const crypto::hash *prev_block_hash
+    const crypto::hash *prev_block_hash,
+    bool events_frozen
 ) {
     if (height == 0)
     {
         reward = GENESIS_REWARD;
         return true;
-    }
-
-    // ===== NINACATCOIN DUAL-MODE RANDOMX MINING (Opción 1 + Opción 4) =====
-    // This implements:
-    // - Opción 1: Shorter SEEDHASH epochs (1024 blocks = 34 hours vs 68 hours)
-    //   Prevents ASIC optimization by changing the RandomX seed twice as fast
-    // 
-    // - Opción 4: Variable dataset size based on network hashrate
-    //   Dataset grows as network grows (2GB base → up to 4GB)
-    //   This makes ASIC development progressively harder
-    //
-    // - Dual-Mode: 80% CPU-optimized, 20% GPU-penalty mode
-    //   - Every 5th block (height % 5 == 0): GPU penalty mode
-    //   - GPU-penalty disables JIT, limits parallelization
-    //   - Result: GPU miners get ~20% of rewards, CPU miners get ~80%
-    
-    if (is_gpu_penalty_block(height)) {
-        // GPU penalty block: Log informational message
-        // In mining code, this will trigger RANDOMX_FLAG_SECURE (no JIT compilation)
-        LOG_PRINT_L2("GPU penalty block at height " << height << ": "
-                     "CPU-optimized mining prioritized (GPU efficiency reduced to ~20%)");
     }
 
     uint64_t halvings = height / ninacatcoin_HALVING_INTERVAL_BLOCKS;
@@ -191,6 +141,28 @@ namespace cryptonote {
     // ===== FRENO SUAVE =====
     const bool events_allowed = (remaining > ninacatcoin_FINAL_BRAKE_REMAINING);
 
+    // =====================================================================
+    // UNIFIED EVENT SYSTEM (X2 / X200)
+    //
+    // Legacy  (height < V2_HEIGHT): prev_block_hash = single prev hash
+    //   → backward compatible, predictable 1 block ahead
+    //
+    // V2 (height >= V2_HEIGHT): prev_block_hash = multi-hash seed
+    //   → caller combines last MULTI_HASH_DEPTH (10) block hashes via
+    //     cn_fast_hash(h_{N-1} || h_{N-2} || ... || h_{N-10})
+    //   → anti-manipulation: attacker must control 10+ consecutive blocks
+    //   → events_frozen: spike protection suppresses events during abuse
+    //
+    // In both modes the miner gets the full prize directly:
+    //   X2  →  base_reward × 2   (e.g. 4 NINA → 8 NINA)
+    //   X200 → base_reward × 200 (e.g. 4 NINA → 800 NINA)
+    // =====================================================================
+
+    // Determine if events can fire
+    bool can_fire_events = events_allowed;
+    if (height >= NINA_EVENT_V2_HEIGHT && events_frozen)
+        can_fire_events = false;
+
     auto get_event_roll = [&](uint8_t tag, uint64_t &out) {
         if (prev_block_hash)
         {
@@ -208,12 +180,11 @@ namespace cryptonote {
     };
 
     // ===== X2 =====
-    if (events_allowed && height >= 100)
+    if (can_fire_events && height >= 100)
     {
         uint64_t reward_x2;
         bool should_apply_x2 = false;
 
-        // 🔹 Forzar el primer X2 exactamente en el bloque 100
         if (height == 100)
         {
             should_apply_x2 = (base_reward <= std::numeric_limits<uint64_t>::max() / 2);
@@ -222,29 +193,23 @@ namespace cryptonote {
         {
             uint64_t rnd2;
             get_event_roll(2, rnd2);
-
             if ((rnd2 % BLOCKS_PER_YEAR) < X2_TIMES_PER_YEAR)
-            {
                 should_apply_x2 = (base_reward <= std::numeric_limits<uint64_t>::max() / 2);
-            }
         }
 
         if (should_apply_x2)
         {
             reward_x2 = base_reward * 2;
-
             if (already_generated_coins + reward_x2 <= MONEY_SUPPLY)
                 base_reward = reward_x2;
         }
     }
 
     // ===== X200 =====
-    if (events_allowed)
+    if (can_fire_events)
     {
         uint64_t rnd200;
         get_event_roll(200, rnd200);
-
-        // Probabilidad exacta: X200_TIMES_PER_YEAR / BLOCKS_PER_YEAR
         if ((rnd200 % BLOCKS_PER_YEAR) < X200_TIMES_PER_YEAR)
         {
             if (base_reward <= std::numeric_limits<uint64_t>::max() / 200)
