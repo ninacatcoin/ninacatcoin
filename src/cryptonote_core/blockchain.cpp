@@ -6370,8 +6370,8 @@ void Blockchain::cancel()
 }
 
 #if defined(PER_BLOCK_CHECKPOINT)
-// checkpoints.dat: 33 groups, 16896 blocks covered, updated 2025-07-06
-static const char expected_block_hashes_hash[] = "56c92cb4ea2430e062a0cfa1e26e40df971ebdac77110a6f61a8ef4f24e7288b";
+// checkpoints.dat: 0 groups, 0 blocks covered (chain < 512 blocks), updated 2026-03-05
+static const char expected_block_hashes_hash[] = "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119";
 // NINA P2P: Centralized download URL removed — NINA generates checkpoints.dat locally
 // static const char CHECKPOINTS_DAT_URL[] = "https://ninacatcoin.es/checkpoints/checkpoints.dat";
 
