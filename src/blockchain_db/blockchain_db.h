@@ -1837,7 +1837,7 @@ public:
   // ═══════════════════════════════════════════════════════════════════════════
   // NINA On-Chain Persistence (v18 hard fork — active from genesis)
   //
-  // NINA writes directly into the blockchain's data.mdb from height 1.
+  // NINA writes directly into the blockchain's data.mdb from height 0 (genesis).
   //
   // These methods provide a database-agnostic interface for NINA to store:
   //   - State (statistics, metadata, learning metrics)  → nina_state table

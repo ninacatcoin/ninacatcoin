@@ -5792,8 +5792,8 @@ WARNING: Do not reuse your ninacatcoin keys on another fork, UNLESS this fork ha
     </message>
     <message>
         <location filename="../src/wallet/wallet2.cpp" line="260"/>
-        <source>Use daemon instance at port &lt;arg&gt; instead of 19081</source>
-        <translation>Använd daemonen på port &lt;arg&gt; istället för 19081</translation>
+        <source>Use daemon instance at port &lt;arg&gt; instead of 19021</source>
+        <translation>Använd daemonen på port &lt;arg&gt; istället för 19021</translation>
     </message>
     <message>
         <location filename="../src/wallet/wallet2.cpp" line="269"/>

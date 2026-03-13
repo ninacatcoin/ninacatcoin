@@ -10,10 +10,13 @@
 #include "daemon/nina_decision_engine.hpp"
 #include "daemon/nina_llm_engine.hpp"
 #include "daemon/nina_spy_countermeasures.hpp"
+#include "daemon/nina_persistence_engine.hpp"
+#include "blockchain_db/blockchain_db.h"
 #include "misc_log_ex.h"
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <iomanip>
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
 #define ninacatcoin_DEFAULT_LOG_CATEGORY "nina_decision"
@@ -90,20 +93,54 @@ std::vector<NinaAction> NinaDecisionEngine::evaluate(const NinaEvent& event)
     }
 
     std::vector<NinaAction> actions;
+    std::string decision_source;   // "LLM", "CACHE", or "FALLBACK"
+    uint64_t inference_ms = 0;
 
     // Try LLM first
     auto& llm = NinaLLMEngine::getInstance();
     if (llm.is_enabled() && llm.is_model_loaded())
     {
+        // ── LLM Cooldown: reuse cached decision if same event type was
+        //    evaluated recently. Prevents CPU spiral when many peers
+        //    connect in rapid succession (each triggering full inference).
+        {
+            std::lock_guard<std::mutex> lock(m_mutex);
+            auto it = m_decision_cache.find(event.type);
+            if (it != m_decision_cache.end())
+            {
+                auto elapsed = std::chrono::steady_clock::now() - it->second.timestamp;
+                auto elapsed_s = std::chrono::duration_cast<std::chrono::seconds>(elapsed).count();
+                if (elapsed_s < static_cast<int64_t>(LLM_COOLDOWN_SECONDS))
+                {
+                    m_stats.llm_decisions++;
+                    MINFO("[NINA-DECISION] Using cached LLM decision for event type "
+                          << static_cast<int>(event.type) << " (" << elapsed_s << "s ago, cooldown="
+                          << LLM_COOLDOWN_SECONDS << "s)");
+                    actions = it->second.actions;
+                    decision_source = "CACHE";
+                    persist_decision_event(event, actions, decision_source, 0);
+                    return actions;
+                }
+            }
+        }
+
+        m_last_inference_ms = 0;
         actions = evaluate_with_llm(event);
         if (!actions.empty())
         {
-            std::lock_guard<std::mutex> lock(m_mutex);
-            m_stats.llm_decisions++;
+            inference_ms = m_last_inference_ms;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex);
+                m_stats.llm_decisions++;
+                // Cache this decision
+                m_decision_cache[event.type] = {actions, std::chrono::steady_clock::now()};
+            }
             MINFO("[NINA-DECISION] LLM decided " << actions.size() << " action(s) for event type " 
-                  << static_cast<int>(event.type));
+                  << static_cast<int>(event.type) << " (cached for " << LLM_COOLDOWN_SECONDS << "s)");
             for (const auto& a : actions)
                 MINFO("[NINA-DECISION]   → " << a.describe());
+            decision_source = "LLM";
+            persist_decision_event(event, actions, decision_source, inference_ms);
             return actions;
         }
     }
@@ -118,6 +155,8 @@ std::vector<NinaAction> NinaDecisionEngine::evaluate(const NinaEvent& event)
           << static_cast<int>(event.type));
     for (const auto& a : actions)
         MINFO("[NINA-DECISION]   → " << a.describe());
+    decision_source = "FALLBACK";
+    persist_decision_event(event, actions, decision_source, 0);
 
     return actions;
 }
@@ -141,6 +180,9 @@ std::vector<NinaAction> NinaDecisionEngine::evaluate_with_llm(const NinaEvent& e
 
         auto& llm = NinaLLMEngine::getInstance();
         AnalysisResult result = llm.analyze(req);
+
+        // Store inference latency for the caller (evaluate())
+        m_last_inference_ms = result.inference_ms;
 
         if (!result.success || result.analysis.empty())
         {
@@ -746,6 +788,99 @@ std::vector<NinaAction> NinaDecisionEngine::parse_decision_output(
     }
 
     return actions;
+}
+
+// ============================================================================
+// LMDB Persistence — Write decision metadata for pool graphs
+// ============================================================================
+
+std::string NinaDecisionEngine::action_type_to_string(NinaActionType type)
+{
+    switch (type)
+    {
+        case NinaActionType::SEND_CHECKPOINTS_TO_PEER:  return "SEND_CHECKPOINTS";
+        case NinaActionType::REQUEST_CHECKPOINTS:        return "REQUEST_CHECKPOINTS";
+        case NinaActionType::GENERATE_CHECKPOINTS:       return "GENERATE_CHECKPOINTS";
+        case NinaActionType::VALIDATE_BLOCKCHAIN_AGAINST_CHECKPOINTS: return "VALIDATE_CHECKPOINTS";
+        case NinaActionType::MONITOR_PEER:               return "MONITOR_PEER";
+        case NinaActionType::INCREASE_PEER_TRUST:        return "INCREASE_TRUST";
+        case NinaActionType::DECREASE_PEER_TRUST:        return "DECREASE_TRUST";
+        case NinaActionType::QUARANTINE_PEER:            return "QUARANTINE_PEER";
+        case NinaActionType::BROADCAST_STATE:            return "BROADCAST_STATE";
+        case NinaActionType::ALERT_NETWORK:              return "ALERT_NETWORK";
+        case NinaActionType::ADJUST_RING_THREAT:         return "ADJUST_RING_THREAT";
+        case NinaActionType::PROTECT_NODE:               return "PROTECT_NODE";
+        case NinaActionType::DIAGNOSE_NODE:              return "DIAGNOSE_NODE";
+        case NinaActionType::RECOVER_NODE:               return "RECOVER_NODE";
+        case NinaActionType::REINTEGRATE_NODE:           return "REINTEGRATE_NODE";
+        case NinaActionType::ACTIVATE_COUNTERMEASURES:   return "ACTIVATE_COUNTERMEASURES";
+        case NinaActionType::BLOCK_SPY_RELAY:            return "BLOCK_SPY_RELAY";
+        case NinaActionType::CLOAK_PEER_LIST:            return "CLOAK_PEER_LIST";
+        case NinaActionType::PROPAGATE_BAN:              return "PROPAGATE_BAN";
+        case NinaActionType::NO_ACTION:                  return "NO_ACTION";
+        default:                                          return "UNKNOWN";
+    }
+}
+
+void NinaDecisionEngine::persist_decision_event(
+    const NinaEvent& event,
+    const std::vector<NinaAction>& actions,
+    const std::string& source,
+    uint64_t inference_ms)
+{
+    try
+    {
+        auto* db = NINaPersistenceEngine::get_blockchain_db();
+        if (!db) return;
+
+        // Max confidence across all actions
+        double max_conf = 0.0;
+        for (const auto& a : actions)
+            if (a.confidence > max_conf) max_conf = a.confidence;
+
+        // Build actions list: "QUARANTINE_PEER+ALERT_NETWORK"
+        std::string acts_str;
+        for (const auto& a : actions) {
+            if (!acts_str.empty()) acts_str += "+";
+            acts_str += action_type_to_string(a.type);
+        }
+        if (acts_str.empty()) acts_str = "NONE";
+
+        // Value format compatible with pool pipe-delimited parsing:
+        // SRC:LLM|EVT:NEW_PEER_CONNECTED|CONF:0.85|MS:42|NACT:2|ACTS:QUARANTINE_PEER+ALERT_NETWORK
+        std::ostringstream val;
+        val << "SRC:" << source
+            << "|EVT:" << event_type_to_string(event.type)
+            << "|CONF:" << std::fixed << std::setprecision(2) << max_conf
+            << "|MS:" << inference_ms
+            << "|NACT:" << actions.size()
+            << "|ACTS:" << acts_str;
+
+        // NINA-WRITER: Use fixed key "last_decision" — single entry, always overwritten.
+        // Eliminates nina_evt_* key proliferation that was creating thousands of
+        // sub-databases and saturating LMDB with independent transactions.
+        db->nina_decision_put("last_decision", val.str());
+
+        MDEBUG("[NINA-DECISION] Persisted decision: last_decision = " << val.str());
+
+        // If any action is QUARANTINE_PEER or PROPAGATE_BAN, also write audit record
+        // Use a single rotating key to avoid unbounded growth
+        for (const auto& a : actions) {
+            if (a.type == NinaActionType::QUARANTINE_PEER
+                || a.type == NinaActionType::PROPAGATE_BAN) {
+                std::string audit_msg = std::to_string(event.timestamp)
+                    + "|PEER_ACTION|" + action_type_to_string(a.type)
+                    + "|conf=" + std::to_string(a.confidence)
+                    + "|evt=" + event_type_to_string(event.type);
+                db->nina_audit_put(event.timestamp, audit_msg);
+                break;  // One audit record per decision is enough
+            }
+        }
+    }
+    catch (const std::exception& e)
+    {
+        MWARNING("[NINA-DECISION] Failed to persist decision event: " << e.what());
+    }
 }
 
 // ============================================================================

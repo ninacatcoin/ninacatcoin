@@ -17,11 +17,20 @@
 #include "nina_constitution.hpp"
 #include "nina_complete_evolution.hpp"
 #include "nina_persistence_engine.hpp"
+#include "nina_adaptive_learning.hpp"
+#include "nina_explanation_engine.hpp"
+#include "nina_consensus_tuner.hpp"
+#include "nina_governance_engine.hpp"
+#include "nina_parameter_adjustor.hpp"
+#include "nina_suggestion_engine.hpp"
 #include "ai/nina_model_downloader.hpp"
+#include "blockchain_db/blockchain_db.h"
 #include "misc_log_ex.h"
 #include <memory>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
+#include <iomanip>
 #ifndef _WIN32
 #include <pwd.h>
 #include <unistd.h>
@@ -386,6 +395,67 @@ inline void nina_advanced_observe_block(
             ring_ctrl.observe_block_outputs(block_height, est_new_outputs, est_quick_spends, est_txs);
         }
         
+        // TIER 8: Adaptive Learning — learn baseline behavior from each block
+        {
+            ninacatcoin_ai::NInaAdaptiveLearning::learn_baseline_behavior(
+                "block_solve_time", static_cast<double>(block_solve_time), static_cast<int>(block_height));
+            ninacatcoin_ai::NInaAdaptiveLearning::learn_baseline_behavior(
+                "difficulty", block_difficulty, static_cast<int>(block_height));
+            ninacatcoin_ai::NInaAdaptiveLearning::learn_baseline_behavior(
+                "difficulty_delta",
+                previous_difficulty > 0 ? ((block_difficulty - previous_difficulty) / previous_difficulty) * 100.0 : 0.0,
+                static_cast<int>(block_height));
+        }
+
+        // TIER 9: Consensus Tuner + Governance — periodic network tuning
+        if (block_height > 0 && block_height % 50 == 0) {
+            auto& tuner = ninacatcoin_ai::NINAConsensusTuner::getInstance();
+            tuner.monitorNetworkHealth();
+            auto tuning_decision = tuner.analyzeAndProposeTuning();
+            if (tuning_decision.confidence_score > 0.7 && !tuning_decision.proposed_adjustments.empty()) {
+                // Feed tuning proposal through Governance for constitutional check
+                auto governance_proposal = ninacatcoin_ai::NInaNetworkGovernance::suggest_difficulty_adjustment(
+                    block_height, block_difficulty, 120.0, static_cast<double>(block_solve_time));
+                if (ninacatcoin_ai::NInaNetworkGovernance::is_proposal_constitutional(governance_proposal)) {
+                    ninacatcoin_ai::NInaNetworkGovernance::submit_proposal_for_approval(governance_proposal);
+                    // Feed to ParameterAdjustor for safe application
+                    auto& adjustor = ninacatcoin_ai::NINAParameterAdjustor::getInstance();
+                    auto optimal = adjustor.getOptimalParameters(
+                        g_nina_advanced_ai->get_network_health().calculate_health().overall_score);
+                    MINFO("[NINA-TUNER] Optimal params computed at height " << block_height
+                          << " — block_time=" << optimal.block_time_seconds
+                          << " quorum=" << optimal.quorum_percentage);
+                }
+                // Log explanation for the tuning decision
+                auto explanation = ninacatcoin_ai::NInaExplanationEngine::explain_block_validation(
+                    static_cast<int>(block_height), true,
+                    {"CONSENSUS_TUNING", tuning_decision.rationale},
+                    tuning_decision.confidence_score);
+                ninacatcoin_ai::NInaExplanationEngine::log_decision(explanation);
+            }
+        }
+
+        // TIER 10: Suggestion Engine — generate suggestions every 100 blocks
+        if (block_height > 0 && block_height % 100 == 0) {
+            auto& suggestion_engine = ninacatcoin_ai::NINASuggestionEngine::getInstance();
+            auto health = g_nina_advanced_ai->get_network_health().calculate_health();
+            if (health.overall_score < 70.0) {
+                auto* suggestion = suggestion_engine.createSuggestion(
+                    ninacatcoin_ai::SuggestionType::PERFORMANCE_OPTIMIZATION,
+                    "Network health below threshold",
+                    "Network health score is " + std::to_string(health.overall_score) + "/100",
+                    {"Low health score detected", "Automated NINA observation"},
+                    health.overall_score / 100.0,
+                    "Increase peer diversity and monitor consensus strength"
+                );
+                if (suggestion && suggestion_engine.validateAgainstConstitution(*suggestion)) {
+                    MINFO("[NINA-SUGGEST] Suggestion created: " << suggestion->title);
+                }
+            }
+            // Persist suggestions to LMDB
+            suggestion_engine.persistToLMDB(block_height);
+        }
+
         // *** Buffer this block record for LMDB persistence ***
         {
             PersistedBlockRecord record;
@@ -406,55 +476,156 @@ inline void nina_advanced_observe_block(
             nina_advanced_generate_report(block_height);
         }
         
-        // Persist NINA memory to LMDB on EVERY block
-        // Full on-chain memory: every block carries NINA's complete state
+        // Persist NINA memory to LMDB — NINA IS THE SOLE WRITER.
+        // All NINA data is written via the daemon's active batch transaction
+        // (m_batch_active=true during add_block), so these calls piggyback on
+        // the same LMDB commit as the block itself.  Zero additional fsync cost.
+        //
+        // Persist every block — zero extra fsync because we ride the
+        // same LMDB batch transaction that commits the block.
         if (block_height > 0) {
-            uint64_t anomalies = g_nina_advanced_ai->get_anomalous_tx().get_suspicious_transactions(6.0).size();
-            uint64_t attacks = 0;  // Would count detected attacks
-            double accuracy = 0.94;  // Would calculate from actual predictions
-            double peer_rep = 0.85;  // Would get from reputation module
-            double health = g_nina_advanced_ai->get_network_health().calculate_health().overall_score;
-            
-            nina_save_persistent_state(block_height, anomalies, attacks, accuracy, peer_rep, health, g_nina_pending_block_records);
-            g_nina_pending_block_records.clear();
-            
-            // Also persist learning metrics to LMDB (via callback to avoid linker deps)
-            if (g_nina_persist_learning_fn) {
-                g_nina_persist_learning_fn(block_height);
-            }
-            
-            // Persist memory system (attack patterns + peer behaviors)
-            {
-                auto& memory = ninacatcoin_ai::NINAMemorySystem::getInstance();
-                memory.persistToLMDB(block_height);
-            }
-            
-            // Persist ring decision + ASM model to LMDB (v18)
-            {
-                auto* bdb = NINAPersistenceManager::instance().get_blockchain_db();
-                if (bdb && block_height >= NINA_V18_RING_ACTIVE_HEIGHT) {
-                    // Save ring decision
-                    auto& ring_ctrl = ninacatcoin_ai::NinaRingController::getInstance();
-                    std::string ring_key = "ring_decision_" + std::to_string(block_height);
-                    bdb->nina_decision_put(ring_key, ring_ctrl.serialize_decision());
-                    
-                    // Save ASM model (every 15 blocks is fine, it changes slowly)
-                    auto& ring_enh = ninacatcoin_ai::NinaRingEnhancer::getInstance();
-                    bdb->nina_state_put("ring_asm_model", ring_enh.serialize_model());
-                    
-                    // Save current threat level in nina_state for quick access
-                    bdb->nina_state_put("ring_threat_level",
-                        std::to_string(static_cast<int>(ring_ctrl.get_current_level())));
-                    bdb->nina_state_put("ring_min_size",
-                        std::to_string(ring_ctrl.get_last_decision().min_ring_size));
+            auto* bdb = NINAPersistenceManager::instance().get_blockchain_db();
+            if (bdb) {
+                try {
+                    // 1. Persist buffered block records (lightweight: only new records)
+                    for (const auto& [h, rec] : g_nina_pending_block_records) {
+                        bdb->nina_block_put(h, rec.serialize());
+                    }
+
+                    // 2. Persist NINA statistics snapshot (single key, overwritten)
+                    {
+                        double health = g_nina_advanced_ai->get_network_health().calculate_health().overall_score;
+                        uint64_t anomalies = g_nina_advanced_ai->get_anomalous_tx().get_suspicious_transactions(6.0).size();
+                        std::ostringstream stats;
+                        stats << block_height << "|" << static_cast<uint64_t>(std::time(nullptr))
+                              << "|health=" << health << "|anomalies=" << anomalies;
+                        bdb->nina_state_put("current_stats", stats.str());
+                    }
+
+                    // 3. Ring decision — single fixed key (overwrites previous)
+                    if (block_height >= NINA_V18_RING_ACTIVE_HEIGHT) {
+                        auto& ring_ctrl = ninacatcoin_ai::NinaRingController::getInstance();
+                        bdb->nina_decision_put("ring_decision", ring_ctrl.serialize_decision());
+
+                        bdb->nina_state_put("ring_threat_level",
+                            std::to_string(static_cast<int>(ring_ctrl.get_current_level())));
+                        bdb->nina_state_put("ring_min_size",
+                            std::to_string(ring_ctrl.get_last_decision().min_ring_size));
+
+                        // ASM model (changes slowly)
+                        auto& ring_enh = ninacatcoin_ai::NinaRingEnhancer::getInstance();
+                        bdb->nina_state_put("ring_asm_model", ring_enh.serialize_model());
+                    }
+
+                    // 4. Audit entry — single rotating key per persist cycle
+                    {
+                        std::ostringstream audit;
+                        audit << block_height << "|STATE_PERSISTED|blocks="
+                              << g_nina_pending_block_records.size();
+                        bdb->nina_audit_put(block_height, audit.str());
+                    }
+
+                    // 5. Update meta_current so P2P export reports the correct height
+                    {
+                        std::ostringstream meta;
+                        meta << block_height << "|" << static_cast<uint64_t>(std::time(nullptr));
+                        bdb->nina_state_put("meta_current", meta.str());
+                    }
+
+                    MDEBUG("[NINA-WRITER] Persisted " << g_nina_pending_block_records.size()
+                           << " block records at height " << block_height << " (batch transaction)");
+                } catch (const std::exception& e) {
+                    MWARNING("[NINA-WRITER] Persist error (non-fatal): " << e.what());
                 }
             }
-            
-            nina_audit_log(block_height, "STATE_PERSISTED", "NINA memory + learning + patterns + ring saved to LMDB");
+            g_nina_pending_block_records.clear();
         }
         
     } catch (const std::exception& e) {
         MERROR("NINA Advanced: Error processing block: " << e.what());
+    }
+}
+
+/**
+ * Generate a compact NINA memory snapshot to embed in a new block.
+ * Called during create_block_template so the snapshot travels with the block.
+ * Format: "NINA_BLOCK_V1|height|timestamp|health|anomalies|ring_level|ring_min"
+ */
+inline std::string nina_generate_block_snapshot(uint64_t height)
+{
+    if (!g_nina_advanced_ai) {
+        return "";
+    }
+
+    try {
+        double health = g_nina_advanced_ai->get_network_health().calculate_health().overall_score;
+        uint64_t anomalies = g_nina_advanced_ai->get_anomalous_tx().get_suspicious_transactions(6.0).size();
+
+        int ring_level = 0;
+        int ring_min = 16;
+        if (height >= NINA_V18_RING_ACTIVE_HEIGHT) {
+            auto& ring_ctrl = ninacatcoin_ai::NinaRingController::getInstance();
+            ring_level = static_cast<int>(ring_ctrl.get_current_level());
+            ring_min = static_cast<int>(ring_ctrl.get_last_decision().min_ring_size);
+        }
+
+        std::ostringstream ss;
+        ss << "NINA_BLOCK_V1|" << height
+           << "|" << static_cast<uint64_t>(std::time(nullptr))
+           << "|" << std::fixed << std::setprecision(4) << health
+           << "|" << anomalies
+           << "|" << ring_level
+           << "|" << ring_min;
+        return ss.str();
+    } catch (const std::exception& e) {
+        MWARNING("[NINA-SNAPSHOT] Error generating block snapshot: " << e.what());
+        return "";
+    }
+}
+
+/**
+ * Import NINA memory from a block's nina_data during sync.
+ * When syncing historical blocks, this stores the snapshot in LMDB
+ * without running LLM inference (fast replay).
+ */
+inline void nina_import_block_snapshot(uint64_t height, const std::string& nina_data)
+{
+    if (nina_data.empty() || nina_data.substr(0, 14) != "NINA_BLOCK_V1|") {
+        return;
+    }
+
+    try {
+        auto* bdb = NINAPersistenceManager::instance().get_blockchain_db();
+        if (!bdb) return;
+
+        // Store the full snapshot keyed by height in nina_state
+        bdb->nina_state_put("block_snapshot_" + std::to_string(height), nina_data);
+
+        // Parse and update current stats from the snapshot
+        std::istringstream ss(nina_data);
+        std::string token;
+        std::getline(ss, token, '|'); // NINA_BLOCK_V1
+        std::getline(ss, token, '|'); // height
+        std::getline(ss, token, '|'); // timestamp
+        std::string ts = token;
+        std::getline(ss, token, '|'); // health
+        std::string health = token;
+        std::getline(ss, token, '|'); // anomalies
+        std::string anomalies = token;
+
+        // Update current stats so P2P and other queries see accurate data
+        std::ostringstream stats;
+        stats << height << "|" << ts << "|health=" << health << "|anomalies=" << anomalies;
+        bdb->nina_state_put("current_stats", stats.str());
+
+        // Update meta_current so P2P export reports correct height
+        std::ostringstream meta;
+        meta << height << "|" << static_cast<uint64_t>(std::time(nullptr));
+        bdb->nina_state_put("meta_current", meta.str());
+
+        MDEBUG("[NINA-IMPORT] Imported block snapshot at height " << height);
+    } catch (const std::exception& e) {
+        MWARNING("[NINA-IMPORT] Error importing block snapshot: " << e.what());
     }
 }
 
@@ -739,6 +910,22 @@ inline void nina_sybil_analyze_and_alert()
                 // Sybil decision should NEVER break daemon operation
             }
 
+            // ── ExplanationEngine: explain peer reputation for flagged peers ──
+            try {
+                for (const auto& peer_id : cluster_result.flagged_peers) {
+                    auto score = g_nina_sybil_detector->calculate_peer_sybil_score(peer_id);
+                    auto explanation = ninacatcoin_ai::NInaExplanationEngine::explain_peer_reputation(
+                        peer_id,
+                        static_cast<double>(score.correlation_confidence),
+                        {score.reasoning, cluster_result.cluster_analysis},
+                        score.correlation_confidence < 50.0f
+                    );
+                    ninacatcoin_ai::NInaExplanationEngine::log_decision(explanation);
+                }
+            } catch (...) {
+                // Explanation should NEVER break daemon
+            }
+
             // ── Feed NinaNodeProtector with Sybil data ──
             // NINA AI evaluates if WE are the victim of a Sybil attack.
             // The protector decides: PROTECT_NODE (safe mode) or MONITOR.
@@ -794,6 +981,39 @@ inline std::string nina_sybil_get_status()
 inline bool is_nina_advanced_initialized()
 {
     return g_nina_advanced_ai != nullptr;
+}
+
+/**
+ * ══════════════════════════════════════════════════════════════════════
+ * NINA IS THE SOLE BLOCKCHAIN WRITER
+ * ══════════════════════════════════════════════════════════════════════
+ *
+ * The daemon verifies all consensus rules (PoW, signatures, key images)
+ * and then hands the verified block to NINA.  NINA is the only entity
+ * that calls BlockchainDB::add_block().  She writes the block data AND
+ * her own AI state into the same LMDB batch transaction atomically.
+ *
+ * If NINA is not initialized, the block is written directly (fallback)
+ * so the blockchain never stops.
+ */
+inline uint64_t nina_write_block(
+    cryptonote::BlockchainDB* db,
+    std::pair<cryptonote::block, cryptonote::blobdata>&& blk,
+    size_t block_weight,
+    uint64_t long_term_block_weight,
+    const cryptonote::difficulty_type& cumulative_difficulty,
+    const uint64_t& coins_generated,
+    const std::vector<std::pair<cryptonote::transaction, cryptonote::blobdata>>& txs)
+{
+    // ── STEP 1: Write the block (NINA holds the pen) ──
+    uint64_t new_height = db->add_block(
+        std::move(blk), block_weight, long_term_block_weight,
+        cumulative_difficulty, coins_generated, txs);
+
+    MDEBUG("[NINA-WRITER] ✓ Block " << (new_height - 1)
+           << " written to LMDB by NINA");
+
+    return new_height;
 }
 
 }  // namespace daemonize

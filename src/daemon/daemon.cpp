@@ -199,7 +199,7 @@ t_daemon::t_daemon(
     auto* db = &blockchain.get_db();
     NINAPersistenceManager::instance().set_blockchain_db(db);
     ninacatcoin_ai::NINaPersistenceEngine::set_blockchain_db(db);
-    MINFO("[NINA-V18] Blockchain DB registered for on-chain persistence (active from height 1)");
+    MINFO("[NINA-V18] Blockchain DB registered for on-chain persistence (active from height 0)");
   }
 
   // Initialize NINA Advanced AI Framework (6 Tiers)

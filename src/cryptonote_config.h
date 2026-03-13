@@ -41,50 +41,35 @@
 #define CRYPTONOTE_MAX_TX_SIZE                          1000000
 #define CRYPTONOTE_MAX_TX_PER_BLOCK                     0x10000000
 #define CRYPTONOTE_PUBLIC_ADDRESS_TEXTBLOB_VER          0
-#define CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW            60  // v1 blocks (heights 0-2): 60 blocks unlock (matches genesis TX)
-#define CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW_V18         30  // v18 blocks (height 3+): 30 blocks × 120s = 1 hour
+#define CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW            60  // legacy unlock window (fallback, not used with v18 from genesis)
+#define CRYPTONOTE_MINED_MONEY_UNLOCK_WINDOW_V18         30  // v18 blocks (height 0+): 30 blocks × 120s = 1 hour
 #define CURRENT_TRANSACTION_VERSION                     2
-#define CURRENT_BLOCK_MAJOR_VERSION                     1
-#define CURRENT_BLOCK_MINOR_VERSION                     0
+#define CURRENT_BLOCK_MAJOR_VERSION                     18
+#define CURRENT_BLOCK_MINOR_VERSION                     18
 #define CRYPTONOTE_BLOCK_FUTURE_TIME_LIMIT              60*60*2
 #define CRYPTONOTE_DEFAULT_TX_SPENDABLE_AGE             10
 
 #define BLOCKCHAIN_TIMESTAMP_CHECK_WINDOW               30  // 30 blocks × 120s = 1 hour (same real time as Monero 60×60s)
 
 // MONEY_SUPPLY - total number coins to be generated
-#define MONEY_SUPPLY                                    ((uint64_t)900000000 * COIN)
-//#define EMISSION_SPEED_FACTOR_PER_MINUTE                (0)
-//#define FINAL_SUBSIDY_PER_MINUTE                        ((uint64_t)300000000000) // 3 * pow(10, 11)
+// Monero-style smooth emission: base_reward = (MONEY_SUPPLY - already_generated) >> emission_speed_factor
+// Tail emission kicks in when base_reward < FINAL_SUBSIDY → 0.80 NINA/block forever
+#define MONEY_SUPPLY                                    ((uint64_t)(-1))
+#define EMISSION_SPEED_FACTOR_PER_MINUTE                (21)
+#define FINAL_SUBSIDY_PER_MINUTE                        ((uint64_t)400000000000) // 4 * pow(10, 11)
 
-#define GENESIS_REWARD                                  ((uint64_t)10000 * COIN)   // quemado, no circula
-#define BASE_BLOCK_REWARD                               ((uint64_t)4 * COIN)
-#define ninacatcoin_MIN_BLOCK_REWARD                       ((uint64_t)2 * COIN)
-
-#define ninacatcoin_HALVING_INTERVAL_BLOCKS                262800ULL
-#define ninacatcoin_MAX_HALVINGS                           1  // 16→8→4→2 NINA (se alcanza mínimo en halving 3)
-
-#define ninacatcoin_FINAL_BRAKE_REMAINING                  ((uint64_t)10000 * COIN)  // apaga eventos al final
+#define GENESIS_REWARD                                  ((uint64_t)1000000 * COIN) // 1M NINA to spendable wallet (block 0)
 
 #define BLOCKS_PER_YEAR                                 262800
 #define X2_TIMES_PER_YEAR                               183
 #define X200_TIMES_PER_YEAR                             6
 
-// ─── NINA Event System v2 (Multi-Hash + Spike Protection) ───────────────
-// Post-fork: event seed uses last 10 block hashes concatenated, preventing
-// manipulation (attacker would need to control 10 consecutive blocks).
-// Events pay directly to the miner (X2=8, X200=800 NINA) — same as legacy.
-// Anti-NiceHash: if hashrate spikes >50%, events freeze for a pseudo-random
-// number of blocks (5-30), derived from chain data (deterministic consensus).
+// ─── NINA Event System ──────────────────────────────────────────────
+// Event seed = prev_id (previous block hash).
+// Events multiply the base_reward for the miner:
+//   X2  →  base_reward × 2
+//   X200 → base_reward × 200
 //
-#define NINA_EVENT_V2_HEIGHT                            3      // Active from v18 fork height
-#define NINA_EVENT_MULTI_HASH_DEPTH                     10     // concat last 10 hashes as seed
-#define NINA_EVENT_SPIKE_THRESHOLD_NUM                  3      // spike ratio 3/2 = 1.5x (50% increase)
-#define NINA_EVENT_SPIKE_THRESHOLD_DEN                  2
-#define NINA_EVENT_FREEZE_MIN                           5      // minimum freeze blocks
-#define NINA_EVENT_FREEZE_RANGE                         26     // random range: 5 to 30 blocks
-#define NINA_EVENT_SPIKE_RECENT                         5      // recent blocks for spike calc
-#define NINA_EVENT_SPIKE_BASELINE                       20     // baseline blocks for spike calc
-
 #define CRYPTONOTE_REWARD_BLOCKS_WINDOW                 100
 #define CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V2    60000 //size of block (bytes) after which reward for block calculated using block size
 #define CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V1    20000 //size of block (bytes) after which reward for block calculated using block size - before first fork
@@ -96,18 +81,15 @@
 // COIN - number of smallest units in one coin
 #define COIN                                            ((uint64_t)1000000000000) // pow(10, 12)
 
-// ─── NINACATCOIN FEE CALIBRATION ────────────────────────────────────────
-// Calibrated for: base_reward = 4 NINA (blocks 0-262799), 2 NINA (262800+)
-// Dynamic formula: fee = BASE_FEE × (BASE_BLOCK_REWARD / actual_reward)
-//   At 4 NINA reward: multiplier = 1.0 → ~0.001 NINA/KB
-//   At 2 NINA reward: multiplier = 2.0 → ~0.002 NINA/KB (fees double with halving)
-// A typical 2KB TX costs: 0.002 NINA (now) → 0.004 NINA (after halving)
+// ─── NINACATCOIN FEE CALIBRATION (Monero-style emission) ────────────────
+// Dynamic fees scale with block reward (Monero formula).
+// Initial base_reward ~17.59 NINA, tail emission 0.80 NINA/block.
 //
-#define FEE_PER_KB_OLD                                  ((uint64_t)4000000000)    // 0.004 NINA (old fixed fallback)
-#define FEE_PER_KB                                      ((uint64_t)1000000000)    // 0.001 NINA (current fixed fallback)
-#define FEE_PER_BYTE                                    ((uint64_t)200000)        // ~0.0003 NINA per typical 1.5KB TX
-#define DYNAMIC_FEE_PER_KB_BASE_FEE                     ((uint64_t)1000000000)    // 0.001 NINA base
-#define DYNAMIC_FEE_PER_KB_BASE_BLOCK_REWARD            ((uint64_t)4000000000000) // 4 NINA = current base reward
+#define FEE_PER_KB_OLD                                  ((uint64_t)10000000000)   // pow(10, 10) — Monero default
+#define FEE_PER_KB                                      ((uint64_t)2000000000)    // 2 * pow(10, 9) — Monero default
+#define FEE_PER_BYTE                                    ((uint64_t)300000)
+#define DYNAMIC_FEE_PER_KB_BASE_FEE                     ((uint64_t)2000000000)    // 2 * pow(10, 9) — Monero default
+#define DYNAMIC_FEE_PER_KB_BASE_BLOCK_REWARD            ((uint64_t)10000000000000) // 10 * pow(10, 12) — Monero default
 #define DYNAMIC_FEE_PER_KB_BASE_FEE_V5                  ((uint64_t)DYNAMIC_FEE_PER_KB_BASE_FEE * (uint64_t)CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V2 / CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5)
 #define DYNAMIC_FEE_REFERENCE_TRANSACTION_WEIGHT         ((uint64_t)3000)
 
@@ -121,7 +103,7 @@
 #define DIFFICULTY_CUT                                  6   // timestamps to cut after sorting (reduced from 60)
 #define DIFFICULTY_BLOCKS_COUNT                         DIFFICULTY_WINDOW + DIFFICULTY_LAG
 
-// NINACOIN: Emergency difficulty reset - not needed (v18 fork at height 3)
+// NINACOIN: Emergency difficulty reset - not needed (v18 from genesis)
 #define DIFFICULTY_RESET_HEIGHT                          0
 
 // NINACOIN: Emergency Difficulty Adjustment (EDA)
@@ -130,11 +112,11 @@
 // when a large miner suddenly departs.
 #define DIFFICULTY_EDA_THRESHOLD                         6   // trigger when block > 6 * 120s = 720s
 
-// NINACOIN: NINA Local Difficulty Assist — active from height 3
+// NINACOIN: NINA Local Difficulty Assist — active from genesis
 // Deterministic local hashrate-trend correction (±5% max)
 // that complements LWMA by reacting faster to sudden hashrate changes.
 // Uses only blockchain data (timestamps/difficulties) — fully deterministic.
-#define NINA_LOCAL_FORK_HEIGHT                           3
+#define NINA_LOCAL_FORK_HEIGHT                           0
 #define NINA_LOCAL_RECENT_WINDOW                         5   // blocks for recent average
 #define NINA_LOCAL_OLDER_WINDOW                          15  // blocks for baseline average
 #define NINA_LOCAL_SMOOTHING                             0.3 // dampening factor (0-1)
@@ -143,16 +125,16 @@
 // ─── NINA AI LLM Model Configuration ────────────────────────────────────
 // SHA-256 hash of the official NINA GGUF model file.
 // Compiled into the binary — verified at daemon startup.
-// Llama-3.2-3B-Instruct QLoRA r32/a64 → Q4_K_M (1918 MB, 5.01 BPW)
-// Generated: nina-llama3.2-3b-nina-Q4_K_M.gguf  (v2 — 3074 examples, 2026-03-02)
-#define NINA_MODEL_HASH "2aca8ecbdb1176a9c4c6adac6d42722bd2bb3a74b8a63de56298480161702bf6"
+// Llama-3.2-3B-Instruct QLoRA r32/a64 → Q4_K_M (1.88 GB, 4.5 BPW)
+// Generated: nina-llama3.2-3b-Q4_K_M.gguf  (v2 — 3074 examples, 2026-03-01)
+#define NINA_MODEL_HASH "5c7be16cf1cc6a6a4e46e5adb85acf684af228abd10ef70178e81f95d7562ca9"
 
 // Model file name (expected in data_dir)
 #define NINA_MODEL_FILENAME "nina_model.gguf"
 
 // Model download URLs (tried in order; SHA-256 verified after download)
-#define NINA_MODEL_DOWNLOAD_URL_PRIMARY   "https://huggingface.co/ninacatcoin/nina-model/resolve/main/nina-llama3.2-3b-nina-Q4_K_M.gguf"
-#define NINA_MODEL_DOWNLOAD_URL_FALLBACK  "https://github.com/ninacatcoin/ninacatcoin/releases/download/v0.18/nina-llama3.2-3b-nina-Q4_K_M.gguf"
+#define NINA_MODEL_DOWNLOAD_URL_PRIMARY   "https://huggingface.co/ninacatcoin/nina-model/resolve/main/nina-3b-nina-ft-Q4_K_M.gguf"
+#define NINA_MODEL_DOWNLOAD_URL_FALLBACK  "https://github.com/ninacatcoin/ninacatcoin/releases/download/v0.18/nina-3b-nina-ft-Q4_K_M.gguf"
 
 // Model size bounds (sanity check before loading)
 #define NINA_MODEL_MIN_SIZE_BYTES  (100ULL * 1024 * 1024)     // 100 MB minimum
@@ -275,7 +257,7 @@
   #define P2P_DEFAULT_LIMIT_RATE_DOWN                     32768      // kB/s
 #endif
 
-#define P2P_FAILED_ADDR_FORGET_SECONDS                  (60*60)     //1 hour
+#define P2P_FAILED_ADDR_FORGET_SECONDS                  (60*5)      //5 minutes (faster retry for small networks)
 #define P2P_IP_BLOCKTIME                                (60*60*24)  //24 hour
 #define P2P_IP_FAILS_BEFORE_BLOCK                       10
 #define P2P_IDLE_CONNECTION_KILL_INTERVAL               (3*60) //3 minutes
@@ -313,7 +295,7 @@
 //
 // Grace period: during the first 5,000 outputs after a threshold,
 // both the old and new ring sizes are accepted.
-#define NINA_ADAPTIVE_RING_START_HEIGHT   3ULL       // Active from v18 fork height
+#define NINA_ADAPTIVE_RING_START_HEIGHT   0ULL       // Active from genesis (v18 from block 0)
 #define NINA_RING_16_RCT_THRESHOLD        100000ULL  // Ring 11 → 16
 #define NINA_RING_21_RCT_THRESHOLD        500000ULL  // Ring 16 → 21
 #define NINA_RING_GRACE_OUTPUTS           5000ULL    // Transition window
@@ -321,7 +303,7 @@
 // ─── NINA v18 Active Ring Control (active from height 3) ───────────────
 // NINA transitions from passive observer to active ring controller.
 // Threat-level based dynamic ring sizing + intelligent decoy selection.
-#define NINA_V18_RING_ACTIVE_HEIGHT       3ULL       // Active from v18 fork height
+#define NINA_V18_RING_ACTIVE_HEIGHT       0ULL       // Active from genesis (v18 from block 0)
 #define NINA_RING_THREAT_NORMAL_MIXIN     15         // Level 0: Ring 16
 #define NINA_RING_THREAT_ELEVATED_MIXIN   20         // Level 1: Ring 21
 #define NINA_RING_THREAT_HIGH_MIXIN       25         // Level 2: Ring 26
@@ -339,7 +321,7 @@
 #define HF_VERSION_SMALLER_BP                   1
 #define HF_VERSION_LONG_TERM_BLOCK_WEIGHT       1
 #define HF_VERSION_MIN_2_OUTPUTS                1
-#define HF_VERSION_MIN_V2_COINBASE_TX           18  // v2 coinbase required from v18 (height 3); v1 blocks use v1 coinbase
+#define HF_VERSION_MIN_V2_COINBASE_TX           18  // v2 coinbase required from v18 (height 0); all blocks use v2 coinbase
 #define HF_VERSION_SAME_MIXIN                   1
 #define HF_VERSION_REJECT_SIGS_IN_COINBASE      1
 #define HF_VERSION_ENFORCE_MIN_AGE              1
@@ -350,7 +332,7 @@
 #define HF_VERSION_BULLETPROOF_PLUS             1
 #define HF_VERSION_VIEW_TAGS                    1
 #define HF_VERSION_2021_SCALING                 1
-#define HF_VERSION_SHORT_UNLOCK_WINDOW          18  // Short coinbase unlock (60→30) activates at v18 (height 3)
+#define HF_VERSION_SHORT_UNLOCK_WINDOW          18  // Short coinbase unlock (60→30) activates at v18 (height 0)
 
 #define PER_KB_FEE_QUANTIZATION_DECIMALS        8
 #define CRYPTONOTE_SCALING_2021_FEE_ROUNDING_PLACES 2
@@ -387,13 +369,13 @@ namespace config
   uint64_t const CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX = 118;
   uint64_t const CRYPTONOTE_PUBLIC_INTEGRATED_ADDRESS_BASE58_PREFIX = 119;
   uint64_t const CRYPTONOTE_PUBLIC_SUBADDRESS_BASE58_PREFIX = 142;
-  uint16_t const P2P_DEFAULT_PORT = 19080;
-  uint16_t const RPC_DEFAULT_PORT = 19081;
-  uint16_t const ZMQ_RPC_DEFAULT_PORT = 19082;
+  uint16_t const P2P_DEFAULT_PORT = 19020;
+  uint16_t const RPC_DEFAULT_PORT = 19021;
+  uint16_t const ZMQ_RPC_DEFAULT_PORT = 19022;
   boost::uuids::uuid const NETWORK_ID = { {
       0x52, 0x70, 0xB5, 0x75, 0x65, 0x44, 0x45, 0x65, 0x57, 0x71, 0x40, 0xC2, 0x56, 0xE5, 0xE5, 0x50
     } }; // Bender's nightmare
-  std::string const GENESIS_TX = "013c01ff0001808084fea6dee1110272ae0baf68233a6f164d5f0befb10a6042fea3e758c2766ac94b25b699dd2b4e9202018c1e74acb801d2f9b0e5283f60ef0710941efa56f160d953f545396c84ae0cec02ee014e696e61636174636f696e2032352f30352f3230313420746f2031362f30322f3230313920474f4f4442594520204e6f20707564652070726f7465676572746520656e746f6e6365732c207065726f2061686f726120766f79206120637265617220616c676f207175652073652064656669656e646120736f6c6f207920736561206a7573746f2e204920636f756c646e27742070726f7465637420796f75206261636b207468656e2c20627574206e6f77204920616d206372656174696e6720736f6d657468696e6720746861742063616e20646566656e6420697473656c6620616e6420626520666169722e";
+  std::string const GENESIS_TX = "021e01ff0001808090bbbad6adf00d0386052852b91e90639dd8b798ca1b902e2ed954d1b11839f9ee276f6618c1d7681492020128308d882caee41a6e9cff7c7481938329032f9e7db6bc319129e1998abca60302ee014e696e61636174636f696e2032352f30352f3230313420746f2031362f30322f3230313920474f4f4442594520204e6f20707564652070726f7465676572746520656e746f6e6365732c207065726f2061686f726120766f79206120637265617220616c676f207175652073652064656669656e646120736f6c6f207920736561206a7573746f2e204920636f756c646e27742070726f7465637420796f75206261636b207468656e2c20627574206e6f77204920616d206372656174696e6720736f6d657468696e6720746861742063616e20646566656e6420697473656c6620616e6420626520666169722e00";
   uint32_t const GENESIS_NONCE = 0;
 
   // Hash domain separators
@@ -430,14 +412,14 @@ namespace config
     uint64_t const CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX = 153;
     uint64_t const CRYPTONOTE_PUBLIC_INTEGRATED_ADDRESS_BASE58_PREFIX = 154;
     uint64_t const CRYPTONOTE_PUBLIC_SUBADDRESS_BASE58_PREFIX = 163;
-    uint16_t const P2P_DEFAULT_PORT = 29080;
-    uint16_t const RPC_DEFAULT_PORT = 29081;
-    uint16_t const ZMQ_RPC_DEFAULT_PORT = 29082;
+    uint16_t const P2P_DEFAULT_PORT = 29020;
+    uint16_t const RPC_DEFAULT_PORT = 29021;
+    uint16_t const ZMQ_RPC_DEFAULT_PORT = 29022;
     boost::uuids::uuid const NETWORK_ID = { {
         0x52, 0x70, 0xB5, 0x75, 0x65, 0x44, 0x45, 0x65, 0x57, 0x71, 0x40, 0xC2, 0x56, 0xE5, 0xE5, 0x51
 
       } }; // Bender's daydream
-    std::string const GENESIS_TX = "013c01ff0001808084fea6dee11102f4e02cb566e636c906ae479c90115d9659f72af4f024288583d81f0ae21170b3920201bba89f6a97bd02af4d57e23d48c480d236edc88b4f8aa1cbd0d0eb9b8d78c8f402ee014e696e61636174636f696e2032352f30352f3230313420746f2031362f30322f3230313920474f4f4442594520204e6f20707564652070726f7465676572746520656e746f6e6365732c207065726f2061686f726120766f79206120637265617220616c676f207175652073652064656669656e646120736f6c6f207920736561206a7573746f2e204920636f756c646e27742070726f7465637420796f75206261636b207468656e2c20627574206e6f77204920616d206372656174696e6720736f6d657468696e6720746861742063616e20646566656e6420697473656c6620616e6420626520666169722e";
+    std::string const GENESIS_TX = "021e01ff0001808090bbbad6adf00d03bc9f90a113b9f8378b379723f719aa5af14a6591bd7e3ccff49afcde59fb5b8e6b9202014f7a30d69e367dd4cf6ad316b6baf15783a7ec3149f8aebbf18fdcadf5682c6702ee014e696e61636174636f696e2032352f30352f3230313420746f2031362f30322f3230313920474f4f4442594520204e6f20707564652070726f7465676572746520656e746f6e6365732c207065726f2061686f726120766f79206120637265617220616c676f207175652073652064656669656e646120736f6c6f207920736561206a7573746f2e204920636f756c646e27742070726f7465637420796f75206261636b207468656e2c20627574206e6f77204920616d206372656174696e6720736f6d657468696e6720746861742063616e20646566656e6420697473656c6620616e6420626520666169722e00";
     uint32_t const GENESIS_NONCE = 0;
   }
 
@@ -446,13 +428,13 @@ namespace config
     uint64_t const CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX = 124;
     uint64_t const CRYPTONOTE_PUBLIC_INTEGRATED_ADDRESS_BASE58_PREFIX = 125;
     uint64_t const CRYPTONOTE_PUBLIC_SUBADDRESS_BASE58_PREFIX = 136;
-    uint16_t const P2P_DEFAULT_PORT = 39080;
-    uint16_t const RPC_DEFAULT_PORT = 39081;
-    uint16_t const ZMQ_RPC_DEFAULT_PORT = 39082;
+    uint16_t const P2P_DEFAULT_PORT = 39020;
+    uint16_t const RPC_DEFAULT_PORT = 39021;
+    uint16_t const ZMQ_RPC_DEFAULT_PORT = 39022;
     boost::uuids::uuid const NETWORK_ID = { {
         0x52, 0x70, 0xB5, 0x75, 0x65, 0x44, 0x45, 0x65, 0x57, 0x71, 0x40, 0xC2, 0x56, 0xE5, 0xE5, 0x52
       } }; // Bender's daydream
-    std::string const GENESIS_TX = "013c01ff000180d0dbc3f402020754d91a7705a90d02b8c5a0eb3326f18948fdb4815dca9ffa07d6c31f267e23920201334a42715d9d6a8a918730711e22169ffd7b275985c620f6f8ae9005ada6606a02ee014e696e61636174636f696e2032352f30352f3230313420746f2031362f30322f3230313920474f4f4442594520204e6f20707564652070726f7465676572746520656e746f6e6365732c207065726f2061686f726120766f79206120637265617220616c676f207175652073652064656669656e646120736f6c6f207920736561206a7573746f2e204920636f756c646e27742070726f7465637420796f75206261636b207468656e2c20627574206e6f77204920616d206372656174696e6720736f6d657468696e6720746861742063616e20646566656e6420697473656c6620616e6420626520666169722e";
+    std::string const GENESIS_TX = "021e01ff0001808090bbbad6adf00d039f7a3568bcaaa2904825cefb490eadd59718b731b0939d9e26e7ef7611b3ffd8899202016ed954179deb1d6413dad0dff437b10eb7b65c0c8144b02e58c828d55743f67d02ee014e696e61636174636f696e2032352f30352f3230313420746f2031362f30322f3230313920474f4f4442594520204e6f20707564652070726f7465676572746520656e746f6e6365732c207065726f2061686f726120766f79206120637265617220616c676f207175652073652064656669656e646120736f6c6f207920736561206a7573746f2e204920636f756c646e27742070726f7465637420796f75206261636b207468656e2c20627574206e6f77204920616d206372656174696e6720736f6d657468696e6720746861742063616e20646566656e6420697473656c6620616e6420626520666169722e00";
     uint32_t const GENESIS_NONCE = 0;
   }
 }

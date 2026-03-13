@@ -5811,8 +5811,8 @@ ATTENTION : Ne réutilisez pas vos clés ninacatcoin avec un autre fork, À MOIN
     </message>
     <message>
         <location filename="../src/wallet/wallet2.cpp" line="260"/>
-        <source>Use daemon instance at port &lt;arg&gt; instead of 19081</source>
-        <translation>Utiliser l&apos;instance de démon située au port &lt;arg&gt; au lieu de 19081</translation>
+        <source>Use daemon instance at port &lt;arg&gt; instead of 19021</source>
+        <translation>Utiliser l&apos;instance de démon située au port &lt;arg&gt; au lieu de 19021</translation>
     </message>
     <message>
         <location filename="../src/wallet/wallet2.cpp" line="269"/>

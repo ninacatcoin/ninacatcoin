@@ -55,6 +55,7 @@
 #include "daemon/nina_decision_engine.hpp"
 #include "daemon/nina_learning_module.hpp"
 #include "daemon/nina_network_health_monitor.hpp"
+#include "daemon/nina_advanced_inline.hpp"
 #include "net/network_throttle-detail.hpp"
 #include "common/pruning.h"
 #include "common/util.h"
@@ -304,6 +305,49 @@ namespace cryptonote
       try_add_next_blocks(context);
     }
 
+    // NINA Continuous Sync: runs AFTER the handshake is fully complete
+    // (deferred from process_payload_sync_data to avoid sending P2P
+    // notifications before the handshake response is sent)
+    uint32_t nina_needed = 1;
+    if (context.m_nina_sync_needed.compare_exchange_strong(nina_needed, 0))
+    {
+      if (context.m_state == cryptonote_connection_context::state_normal)
+      {
+        try {
+          request_nina_state_from_peer(context);
+
+          const auto& our_checkpoints = m_core.get_checkpoints();
+          uint32_t our_groups = our_checkpoints.get_local_checkpoint_state().dat_num_groups;
+
+          ninacatcoin_ai::NinaEvent event(ninacatcoin_ai::NinaEventType::NEW_PEER_CONNECTED);
+          event.set("our_height", m_core.get_current_blockchain_height());
+          event.set("peer_height", context.m_remote_blockchain_height);
+          event.set("our_checkpoint_groups", static_cast<uint64_t>(our_groups));
+          event.set("peer_checkpoint_height", static_cast<uint64_t>(0));
+          event.set("model_match", "true");
+
+          auto actions = ninacatcoin_ai::NinaDecisionEngine::getInstance().evaluate(event);
+
+          for (const auto& action : actions) {
+            switch (action.type) {
+              case ninacatcoin_ai::NinaActionType::SEND_CHECKPOINTS_TO_PEER:
+                MINFO("[NINA-DECISION] → Sending checkpoints to new peer (confidence="
+                      << action.confidence << "): " << action.reasoning);
+                send_checkpoint_data_to_peer(context);
+                break;
+              case ninacatcoin_ai::NinaActionType::MONITOR_PEER:
+                MINFO("[NINA-DECISION] → Monitoring new peer: " << action.reasoning);
+                break;
+              default:
+                MDEBUG("[NINA-DECISION] → Action " << static_cast<int>(action.type)
+                       << ": " << action.reasoning);
+                break;
+            }
+          }
+        } catch (...) {}
+      }
+    }
+
     return true;
   }
   //------------------------------------------------------------------------------------------------------------------------
@@ -501,45 +545,14 @@ namespace cryptonote
       if(is_inital  && hshd.current_height >= target && target == m_core.get_current_blockchain_height())
         on_connection_synchronized();
 
-      // NINA Continuous Sync: request state from new peer on handshake
+      // NINA Continuous Sync: defer to callback so it runs AFTER the handshake
+      // response has been sent. Sending P2P notifications during handshake
+      // processing causes the remote node to receive unexpected data before
+      // the handshake response, breaking the connection.
       if (is_inital && m_synchronized) {
-        try {
-          request_nina_state_from_peer(context);
-
-          // ═══════════════════════════════════════════════════════════════
-          // NINA DECISION: A new peer connected. Should we help them?
-          // Instead of hardcoded if/then, NINA evaluates the situation.
-          // ═══════════════════════════════════════════════════════════════
-          const auto& our_checkpoints = m_core.get_checkpoints();
-          uint32_t our_groups = our_checkpoints.get_local_checkpoint_state().dat_num_groups;
-
-          ninacatcoin_ai::NinaEvent event(ninacatcoin_ai::NinaEventType::NEW_PEER_CONNECTED);
-          event.set("our_height", m_core.get_current_blockchain_height());
-          event.set("peer_height", hshd.current_height);
-          event.set("our_checkpoint_groups", static_cast<uint64_t>(our_groups));
-          event.set("peer_checkpoint_height", static_cast<uint64_t>(0)); // Unknown yet — state sync will tell us
-          event.set("model_match", "true"); // Assume match until proven otherwise
-
-          auto actions = ninacatcoin_ai::NinaDecisionEngine::getInstance().evaluate(event);
-
-          // Dispatch NINA's decisions
-          for (const auto& action : actions) {
-            switch (action.type) {
-              case ninacatcoin_ai::NinaActionType::SEND_CHECKPOINTS_TO_PEER:
-                MINFO("[NINA-DECISION] → Sending checkpoints to new peer (confidence=" 
-                      << action.confidence << "): " << action.reasoning);
-                send_checkpoint_data_to_peer(context);
-                break;
-              case ninacatcoin_ai::NinaActionType::MONITOR_PEER:
-                MINFO("[NINA-DECISION] → Monitoring new peer: " << action.reasoning);
-                break;
-              default:
-                MDEBUG("[NINA-DECISION] → Action " << static_cast<int>(action.type) 
-                       << ": " << action.reasoning);
-                break;
-            }
-          }
-        } catch (...) {}
+        context.m_nina_sync_needed = 1;
+        ++context.m_callback_request_count;
+        m_p2p->request_callback(context);
       }
 
       return true;
@@ -768,6 +781,17 @@ namespace cryptonote
     // block validation will cause disconnects and bans, so it might not be that bad.
     m_core.pause_mine();
     const auto resume_mine_on_leave = epee::misc_utils::create_scope_leave_handler([this](){ m_core.resume_mine(); });
+
+    // NINA SybilDetector: observe block announcement from this peer
+    try {
+      const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+      daemonize::nina_sybil_observe_peer_block_announcement(
+        epee::string_tools::pod_to_hex(context.m_connection_id),
+        arg.current_blockchain_height,
+        static_cast<uint32_t>(now_ms & 0xFFFFFFFF),
+        0.0);
+    } catch (...) {}
 
     // This set allows us to quickly sanity check that the block binds all txs contained in this
     // fluffy payload, which means that no extra stowaway txs can be harbored. In the case of a
@@ -1800,6 +1824,17 @@ namespace cryptonote
         case relay_method::none:
           break;
       }
+    }
+
+    // NINA AI: SybilDetector — observe TX announcement from peer
+    try {
+      daemonize::nina_sybil_observe_peer_tx_announcement(
+        epee::string_tools::pod_to_hex(context.m_connection_id),
+        static_cast<uint32_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now().time_since_epoch()).count())
+      );
+    } catch (const std::exception& e) {
+      MWARNING("NINA SybilDetector TX observe error: " << e.what());
     }
 
     if (!stem_txs.empty())

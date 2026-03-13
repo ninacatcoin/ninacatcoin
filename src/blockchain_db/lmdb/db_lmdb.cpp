@@ -4632,7 +4632,7 @@ void BlockchainLMDB::fixup()
 // data.mdb, sharing the same LMDB environment, transactions, and crash safety
 // as blocks and transactions.
 //
-// Activated at hard fork v18 (height 1). NINA writes directly into the
+// Activated at hard fork v18 (height 0). NINA writes directly into the
 // blockchain's data.mdb, sharing the same LMDB environment, transactions,
 // and crash safety as blocks and transactions.
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -6024,7 +6024,7 @@ void BlockchainLMDB::migrate_5_6()
 
   MGINFO_GREEN("✓ NINA on-chain tables created in data.mdb (5 tables)");
   MGINFO_GREEN("  nina_state, nina_blocks, nina_checkpoints, nina_decisions, nina_audit");
-  MGINFO_GREEN("  These are active from hard fork v18 (height 1)");
+  MGINFO_GREEN("  These are active from hard fork v18 (height 0)");
 }
 
 }  // namespace cryptonote

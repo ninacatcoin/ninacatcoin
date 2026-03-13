@@ -298,10 +298,12 @@ namespace cryptonote
   bool checkpoints::init_default_checkpoints(network_type nettype)
   {
     // Only hardcode genesis (immutable). Other checkpoints loaded from JSON/DNS
+    // TODO: Update genesis hashes after first successful run with CURRENT_BLOCK_MAJOR_VERSION=18
+    // Old hashes (version 1): mainnet=10ee3dc0..., testnet=2b56d22d..., stagenet=2b39feb0...
     static const std::map<network_type, std::string> GENESIS_CHECKPOINTS = {
-      {TESTNET,  "a6fc2dabd8141fcc9bbb739928236bc6ac3278c7eea80a238e71728a88ebf740"},
-      {STAGENET, "ee63eb1c3c02a738824e93b974bfec37f24f88495dd31b2d30baa4d0a204ac29"},
-      {MAINNET,  "2407ad0dacc26071b276acde70db33ccac763ca5fd664f45d91ed59ec27bc599"}
+      {TESTNET,  "ed2988bbc833bf17358815c6d2d164bc527da1c22092faf6fcbb973a1fcfcb97"},
+      {STAGENET, "0c29b82f61b9944ca6cfb60a7e4ad0ea0681fa470f4e8ff4e68f3ae6166cb0e4"},
+      {MAINNET,  "0713b26d89e320fe127b9d96794d95b042525100c5509f671853eb395804cfeb"}
     };
 
     // >>> AUTO-GENERATED MAINNET CHECKPOINTS BEGIN

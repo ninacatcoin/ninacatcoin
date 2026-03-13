@@ -16,13 +16,13 @@ install -d -m 0755 /etc/ninacatcoin
 if [ -n "${NINACATCOIN_DISCORD_WEBHOOK:-}" ]; then
   cat > /etc/ninacatcoin/discord-bot.env <<EOF
 NINACATCOIN_DISCORD_WEBHOOK=${NINACATCOIN_DISCORD_WEBHOOK}
-NINACATCOIN_RPC_URL=http://127.0.0.1:19081/json_rpc
+NINACATCOIN_RPC_URL=http://127.0.0.1:19021/json_rpc
 NINACATCOIN_POLL_SECONDS=15
 NINACATCOIN_EXPLORER_URL=https://explorer.ninacatcoin.com
 # NINACATCOIN_POST_ALL=1
 # NINACATCOIN_STATE_FILE=/var/lib/ninacatcoin/discord-lottery-bot.state.json
-# NINACATCOIN_SELF_RPC=http://127.0.0.1:19081/json_rpc
-# NINACATCOIN_FAILOVER_RPCS=http://node1:19081/json_rpc,http://node2:19081/json_rpc
+# NINACATCOIN_SELF_RPC=http://127.0.0.1:19021/json_rpc
+# NINACATCOIN_FAILOVER_RPCS=http://node1:19021/json_rpc,http://node2:19021/json_rpc
 # NINACATCOIN_FAILOVER_CHECK_SECONDS=30
 EOF
   chmod 600 /etc/ninacatcoin/discord-bot.env

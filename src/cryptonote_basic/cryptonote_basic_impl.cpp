@@ -92,76 +92,43 @@ namespace cryptonote {
     uint64_t &reward,
     uint8_t version,
     size_t height,
-    const crypto::hash *prev_block_hash,
-    bool events_frozen
+    const crypto::hash *prev_block_hash
 ) {
+    // ===== GENESIS BLOCK: 1M NINA to spendable wallet =====
     if (height == 0)
     {
         reward = GENESIS_REWARD;
         return true;
     }
 
-    uint64_t halvings = height / ninacatcoin_HALVING_INTERVAL_BLOCKS;
-    
-    // ===== VALIDACIÓN DE MÁXIMO HALVING =====
-    // Limita halvings a MAX_HALVINGS (3 = hasta 2 NINA)
-    if (halvings > ninacatcoin_MAX_HALVINGS)
-      halvings = ninacatcoin_MAX_HALVINGS;
+    // ===== MONERO-STYLE SMOOTH EMISSION =====
+    // base_reward = (MONEY_SUPPLY - already_generated_coins) >> emission_speed_factor
+    // With tail emission floor at FINAL_SUBSIDY_PER_MINUTE * target_minutes
+    static_assert(DIFFICULTY_TARGET_V2 % 60 == 0 && DIFFICULTY_TARGET_V1 % 60 == 0,
+                  "difficulty targets must be a multiple of 60");
+    const int target = version < 2 ? DIFFICULTY_TARGET_V1 : DIFFICULTY_TARGET_V2;
+    const int target_minutes = target / 60;
+    const int emission_speed_factor = EMISSION_SPEED_FACTOR_PER_MINUTE - (target_minutes - 1);
 
-    // Calcula dinámicamente el máximo de halvings basado en MIN_BLOCK_REWARD
-    // Evita que los bit shifts produzcan valores menores al mínimo
-    uint64_t max_halvings_by_min = 0;
-    while (max_halvings_by_min < 1 &&
-           (BASE_BLOCK_REWARD >> max_halvings_by_min) > ninacatcoin_MIN_BLOCK_REWARD)
+    uint64_t base_reward = (MONEY_SUPPLY - already_generated_coins) >> emission_speed_factor;
+
+    // Tail emission: minimum 0.6 NINA per block forever
+    if (base_reward < FINAL_SUBSIDY_PER_MINUTE * target_minutes)
     {
-      ++max_halvings_by_min;
+        base_reward = FINAL_SUBSIDY_PER_MINUTE * target_minutes;
     }
-    if (halvings > max_halvings_by_min)
-      halvings = max_halvings_by_min;
-
-    // Recompensa base con halving
-    uint64_t base_reward = BASE_BLOCK_REWARD >> halvings;
-
-    // ===== NINA FIXED MINIMUM BLOCK REWARD (2 NINA) =====
-    if (base_reward < ninacatcoin_MIN_BLOCK_REWARD)
-    {
-        base_reward = ninacatcoin_MIN_BLOCK_REWARD;
-    }
-
-    // Supply restante
-    uint64_t remaining = 0;
-    if (already_generated_coins < MONEY_SUPPLY)
-        remaining = MONEY_SUPPLY - already_generated_coins;
-    else
-    {
-        reward = 0;
-        return true;
-    }
-
-    // ===== FRENO SUAVE =====
-    const bool events_allowed = (remaining > ninacatcoin_FINAL_BRAKE_REMAINING);
 
     // =====================================================================
-    // UNIFIED EVENT SYSTEM (X2 / X200)
+    // NINA EVENT SYSTEM (X2 / X200)
     //
-    // Legacy  (height < V2_HEIGHT): prev_block_hash = single prev hash
-    //   → backward compatible, predictable 1 block ahead
-    //
-    // V2 (height >= V2_HEIGHT): prev_block_hash = multi-hash seed
-    //   → caller combines last MULTI_HASH_DEPTH (10) block hashes via
-    //     cn_fast_hash(h_{N-1} || h_{N-2} || ... || h_{N-10})
-    //   → anti-manipulation: attacker must control 10+ consecutive blocks
-    //   → events_frozen: spike protection suppresses events during abuse
-    //
-    // In both modes the miner gets the full prize directly:
-    //   X2  →  base_reward × 2   (e.g. 4 NINA → 8 NINA)
-    //   X200 → base_reward × 200 (e.g. 4 NINA → 800 NINA)
+    // Uses prev_block_hash (prev_id) as the event seed.
+    // The miner gets the full prize directly:
+    //   X2  →  base_reward × 2
+    //   X200 → base_reward × 200
+    // Events always active (tail emission = infinite supply, no brake needed)
     // =====================================================================
 
-    // Determine if events can fire
-    bool can_fire_events = events_allowed;
-    if (height >= NINA_EVENT_V2_HEIGHT && events_frozen)
-        can_fire_events = false;
+    bool can_fire_events = true;
 
     auto get_event_roll = [&](uint8_t tag, uint64_t &out) {
         if (prev_block_hash)
@@ -200,8 +167,7 @@ namespace cryptonote {
         if (should_apply_x2)
         {
             reward_x2 = base_reward * 2;
-            if (already_generated_coins + reward_x2 <= MONEY_SUPPLY)
-                base_reward = reward_x2;
+            base_reward = reward_x2;
         }
     }
 
@@ -215,39 +181,42 @@ namespace cryptonote {
             if (base_reward <= std::numeric_limits<uint64_t>::max() / 200)
             {
                 uint64_t reward_x200 = base_reward * 200;
-                if (already_generated_coins + reward_x200 <= MONEY_SUPPLY)
-                    base_reward = reward_x200;
+                base_reward = reward_x200;
             }
         }
     }
 
-    // ===== FRENO DURO =====
-    // Protección: Si no hay supply restante o es negativo, pagar 0
-    if (remaining <= 0) {
-        reward = 0;
-        return true;
+    // ===== BLOCK WEIGHT PENALTY (Monero) =====
+    // Penalizes blocks larger than median — prevents bloat
+    uint64_t full_reward_zone = get_min_block_weight(version);
+
+    if (median_weight < full_reward_zone) {
+      median_weight = full_reward_zone;
     }
 
-    // Ajustar base_reward si excede el supply restante
-    // PERO: Garantizar que siempre paguemos al menos la recompensa mínima si hay supply
-    if (base_reward > remaining) {
-        // Si remaining < mínimo, aún no pagar 0: pagar lo que queda
-        // (La red continuará hasta que no haya nada)
-        if (remaining >= ninacatcoin_MIN_BLOCK_REWARD) {
-            // Hay suficiente para pagar la recompensa ajustada
-            base_reward = remaining;
-        } else if (remaining > 0) {
-            // Hay algo pero menos que el mínimo: pagar lo que queda
-            // Esto permite que la red continúe con pagos micros en los últimos bloques
-            base_reward = remaining;
-        } else {
-            // No hay nada: pagar 0
-            reward = 0;
-            return true;
-        }
+    if (current_block_weight <= median_weight) {
+      reward = base_reward;
+      return true;
     }
 
-    reward = base_reward;
+    if (current_block_weight > 2 * median_weight) {
+      MERROR("Block cumulative weight is too big: " << current_block_weight << ", expected less than " << 2 * median_weight);
+      return false;
+    }
+
+    uint64_t product_hi;
+    uint64_t multiplicand = 2 * median_weight - current_block_weight;
+    multiplicand *= current_block_weight;
+    uint64_t product_lo = mul128(base_reward, multiplicand, &product_hi);
+
+    uint64_t reward_hi;
+    uint64_t reward_lo;
+    div128_64(product_hi, product_lo, median_weight, &reward_hi, &reward_lo, NULL, NULL);
+    div128_64(reward_hi, reward_lo, median_weight, &reward_hi, &reward_lo, NULL, NULL);
+    assert(0 == reward_hi);
+    assert(reward_lo < base_reward);
+
+    reward = reward_lo;
     return true;
   }
 

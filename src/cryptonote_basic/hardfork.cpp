@@ -372,10 +372,12 @@ uint8_t HardFork::get_ideal_version() const
 uint8_t HardFork::get_ideal_version(uint64_t height) const
 {
   CRITICAL_REGION_LOCAL(lock);
-  for (unsigned int n = heights.size() - 1; n > 0; --n) {
+  for (unsigned int n = heights.size() - 1; ; --n) {
     if (height >= heights[n].height) {
       return heights[n].version;
     }
+    if (n == 0)
+      break;
   }
   return original_version;
 }

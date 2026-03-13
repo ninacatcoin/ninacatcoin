@@ -31,6 +31,7 @@
 #pragma once
 #include <array>
 #include <atomic>
+#include <set>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
 #include <boost/thread.hpp>
@@ -476,7 +477,7 @@ namespace nodetool
     peerlist_storage m_peerlist_storage;
 
     epee::math_helper::once_a_time_seconds<P2P_DEFAULT_HANDSHAKE_INTERVAL> m_peer_handshake_idle_maker_interval;
-    epee::math_helper::once_a_time_seconds<1> m_connections_maker_interval;
+    epee::math_helper::once_a_time_seconds<5> m_connections_maker_interval;
     epee::math_helper::once_a_time_seconds<60*30, false> m_peerlist_store_interval;
     epee::math_helper::once_a_time_seconds<60> m_gray_peerlist_housekeeping_interval;
     epee::math_helper::once_a_time_seconds<3600, false> m_incoming_connections_interval;
@@ -504,6 +505,9 @@ namespace nodetool
 
     std::map<std::string, time_t> m_conn_fails_cache;
     epee::critical_section m_conn_fails_cache_lock;
+
+    std::set<std::string> m_self_detected_addresses;
+    epee::critical_section m_self_detected_lock;
 
     epee::critical_section m_blocked_hosts_lock; // for both hosts and subnets
     std::map<std::string, time_t> m_blocked_hosts;

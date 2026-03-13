@@ -31,7 +31,9 @@
 #define HAVE_MLOCK 1
 #endif
 
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #if defined HAVE_MLOCK
 #include <sys/mman.h>
 #endif

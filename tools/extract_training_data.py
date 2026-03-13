@@ -3,7 +3,7 @@
 extract_training_data.py — Extract REAL blockchain data from ninacatcoin daemon
 for ML model training.
 
-Connects to the daemon RPC (default: http://127.0.0.1:19081) and fetches
+Connects to the daemon RPC (default: http://127.0.0.1:19021) and fetches
 all block headers, computes ML features, and writes to CSV.
 
 Usage:
@@ -37,7 +37,7 @@ from collections import deque
 class NinacatcoinRPC:
     """Simple JSON-RPC client for ninacatcoind."""
     
-    def __init__(self, host='127.0.0.1', port=19081):
+    def __init__(self, host='127.0.0.1', port=19021):
         self.url = f'http://{host}:{port}/json_rpc'
         self.session = requests.Session()
         self.session.headers.update({'Content-Type': 'application/json'})
@@ -61,7 +61,7 @@ class NinacatcoinRPC:
         except requests.exceptions.ConnectionError:
             print(f"\n✗ ERROR: Cannot connect to daemon at {self.url}")
             print("  Make sure ninacatcoind is running with RPC enabled:")
-            print("  ./ninacatcoind --rpc-bind-port=19081")
+            print("  ./ninacatcoind --rpc-bind-port=19021")
             sys.exit(1)
     
     def get_info(self):
@@ -303,7 +303,7 @@ def main():
         description='Extract ninacatcoin blockchain data for ML training'
     )
     parser.add_argument('--host', default='127.0.0.1', help='Daemon RPC host')
-    parser.add_argument('--port', type=int, default=19081, help='Daemon RPC port')
+    parser.add_argument('--port', type=int, default=19021, help='Daemon RPC port')
     parser.add_argument('--output', default=None,
                         help='Output CSV path (default: ~/.ninacatcoin/ml_training_data.csv)')
     parser.add_argument('--batch-size', type=int, default=500,

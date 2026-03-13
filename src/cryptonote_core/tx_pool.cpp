@@ -49,6 +49,7 @@
 #include "common/perf_timer.h"
 #include "crypto/hash.h"
 #include "crypto/duration.h"
+#include "ai/nina_smart_mempool.hpp"
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
 #define ninacatcoin_DEFAULT_LOG_CATEGORY "txpool"
@@ -347,6 +348,15 @@ namespace cryptonote
       m_txpool_weight += tx_weight;
 
     ++m_cookie;
+
+    // NINA SmartMempool: analyze incoming transaction
+    try {
+      auto& mempool_ai = ninacatcoin_ai::NINASmartMempool::getInstance();
+      mempool_ai.analyze_transaction(
+        epee::string_tools::pod_to_hex(id),
+        blob.size(), tx_weight, fee,
+        tx.vin.size(), tx.vout.size());
+    } catch (...) {}
 
     MINFO("Transaction added to pool: txid " << id << " weight: " << tx_weight << " fee/byte: " << (fee / (double)(tx_weight ? tx_weight : 1)) << ", count: " << m_added_txs_by_id.size());
 
@@ -751,6 +761,9 @@ namespace cryptonote
             m_blockchain.remove_txpool_tx(txid);
             reduce_txpool_weight(entry.second);
             remove_transaction_keyimages(tx, txid);
+            // NINA SmartMempool: notify eviction
+            try { ninacatcoin_ai::NINASmartMempool::getInstance().notify_tx_evicted(
+              epee::string_tools::pod_to_hex(txid), "timeout"); } catch (...) {}
           }
         }
         catch (const std::exception &e)

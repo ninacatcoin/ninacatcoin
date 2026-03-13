@@ -824,10 +824,10 @@ Packages are available for
     docker build --build-arg NPROC=1 -t ninacatcoin .
 
     # either run in foreground
-    docker run -it -v /ninacatcoin/chain:/home/ninacatcoin/.ninacatcoin -v /ninacatcoin/wallet:/wallet -p 19080:19080 ninacatcoin
+    docker run -it -v /ninacatcoin/chain:/home/ninacatcoin/.ninacatcoin -v /ninacatcoin/wallet:/wallet -p 19020:19020 ninacatcoin
 
     # or in background
-    docker run -it -d -v /ninacatcoin/chain:/home/ninacatcoin/.ninacatcoin -v /ninacatcoin/wallet:/wallet -p 19080:19080 ninacatcoin
+    docker run -it -d -v /ninacatcoin/chain:/home/ninacatcoin/.ninacatcoin -v /ninacatcoin/wallet:/wallet -p 19020:19020 ninacatcoin
     ```
 
   * The build needs 3 GB space.
@@ -916,7 +916,7 @@ to add a rule to allow this connection too, in addition to telling torsocks to
 allow inbound connections. Full example:
 
 ```bash
-sudo iptables -I OUTPUT 2 -p tcp -d 127.0.0.1 -m tcp --dport 19081 -j ACCEPT
+sudo iptables -I OUTPUT 2 -p tcp -d 127.0.0.1 -m tcp --dport 19021 -j ACCEPT
 DNS_PUBLIC=tcp torsocks ./ninacatcoind --p2p-bind-ip 127.0.0.1 --no-igd --rpc-bind-ip 127.0.0.1 \
     --data-dir /home/amnesia/Persistent/your/directory/to/the/blockchain
 ```

@@ -75,6 +75,20 @@ add_library(ninacatcoin_ai STATIC
   ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_complete_evolution.hpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_constitution.cpp
   ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_constitution.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_adaptive_learning.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_adaptive_learning.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_network_health_monitor.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_network_health_monitor.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_explanation_engine.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_explanation_engine.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_consensus_tuner.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_consensus_tuner.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_governance_engine.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_governance_engine.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_parameter_adjustor.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_parameter_adjustor.hpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_suggestion_engine.cpp
+  ${CMAKE_CURRENT_SOURCE_DIR}/../daemon/nina_suggestion_engine.hpp
 )
 
 target_include_directories(ninacatcoin_ai

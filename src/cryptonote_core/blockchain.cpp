@@ -1098,108 +1098,6 @@ difficulty_type Blockchain::get_difficulty_for_next_block()
   return diff;
 }
 //------------------------------------------------------------------
-// NINA Event V2: compute multi-hash seed from last MULTI_HASH_DEPTH block hashes.
-// This makes the event seed depend on 10 consecutive blocks, preventing
-// single-block manipulation of X2/X200 events.
-//------------------------------------------------------------------
-crypto::hash Blockchain::compute_event_seed_v2(uint64_t height) const
-{
-  std::string data;
-  const uint64_t depth = NINA_EVENT_MULTI_HASH_DEPTH;
-  data.reserve(sizeof(crypto::hash) * depth);
-
-  for (uint64_t i = 0; i < depth && height > i; ++i)
-  {
-    crypto::hash h = m_db->get_block_hash_from_height(height - 1 - i);
-    data.append(reinterpret_cast<const char*>(&h), sizeof(crypto::hash));
-  }
-
-  crypto::hash seed;
-  crypto::cn_fast_hash(data.data(), data.size(), seed);
-  return seed;
-}
-//------------------------------------------------------------------
-// NINA Event V2: spike detection and freeze logic.
-//
-// Spike = recent blocks solved much faster than baseline (hashrate surge).
-// When a spike is detected, events are frozen for a pseudo-random number
-// of blocks (5-30), making the resumption point unpredictable.
-//
-// The freeze duration is derived deterministically from the spike trigger
-// block's hash, so all nodes compute the same freeze window.
-//------------------------------------------------------------------
-bool Blockchain::check_events_frozen(uint64_t height) const
-{
-  if (height < NINA_EVENT_V2_HEIGHT) return false;
-
-  const uint64_t need_history = NINA_EVENT_SPIKE_RECENT + NINA_EVENT_SPIKE_BASELINE;
-  if (height <= need_history) return false;
-
-  // --- Helper lambda: detect spike at block H ---
-  // Compares avg solve time of SPIKE_RECENT blocks vs SPIKE_BASELINE blocks
-  // immediately before them. If recent blocks are >1.5x faster → spike.
-  auto detect_spike_at = [&](uint64_t H) -> bool {
-    if (H <= need_history) return false;
-
-    // Recent window: blocks [H-SPIKE_RECENT .. H-1]
-    // Time span = timestamp(H-1) - timestamp(H-1 - SPIKE_RECENT)
-    uint64_t ts_recent_end   = m_db->get_block_timestamp(H - 1);
-    uint64_t ts_recent_start = m_db->get_block_timestamp(H - 1 - NINA_EVENT_SPIKE_RECENT);
-    uint64_t recent_time = (ts_recent_end > ts_recent_start) ? (ts_recent_end - ts_recent_start) : 1;
-
-    // Baseline window: blocks [H-1 - SPIKE_RECENT - SPIKE_BASELINE .. H-1 - SPIKE_RECENT]
-    uint64_t ts_baseline_start = m_db->get_block_timestamp(H - 1 - NINA_EVENT_SPIKE_RECENT - NINA_EVENT_SPIKE_BASELINE);
-    uint64_t baseline_time = (ts_recent_start > ts_baseline_start) ? (ts_recent_start - ts_baseline_start) : 1;
-
-    // Spike condition (integer arithmetic, no floats):
-    // baseline_avg > recent_avg * threshold
-    // (baseline_time / BASELINE) > (recent_time / RECENT) * (NUM / DEN)
-    // baseline_time * RECENT * DEN > recent_time * BASELINE * NUM
-    return (baseline_time * NINA_EVENT_SPIKE_RECENT * NINA_EVENT_SPIKE_THRESHOLD_DEN)
-         > (recent_time  * NINA_EVENT_SPIKE_BASELINE * NINA_EVENT_SPIKE_THRESHOLD_NUM);
-  };
-
-  // --- Check if we're inside an active freeze window ---
-  // Scan backwards for spike triggers that started a freeze covering `height`.
-  const uint64_t max_freeze = NINA_EVENT_FREEZE_MIN + NINA_EVENT_FREEZE_RANGE - 1; // 30
-  for (uint64_t lookback = 1; lookback <= max_freeze && height > lookback; ++lookback)
-  {
-    uint64_t T = height - lookback;
-    if (T < NINA_EVENT_V2_HEIGHT) break;
-
-    if (detect_spike_at(T))
-    {
-      // Compute pseudo-random freeze duration from block T's hash
-      crypto::hash th = m_db->get_block_hash_from_height(T);
-      // Add a domain tag so the freeze seed differs from event seed
-      std::array<uint8_t, sizeof(crypto::hash) + 1> fbuf{};
-      std::memcpy(fbuf.data(), &th, sizeof(crypto::hash));
-      fbuf[sizeof(crypto::hash)] = 0xFF; // freeze tag
-      crypto::hash fh = crypto::cn_fast_hash(fbuf.data(), fbuf.size());
-      uint64_t freeze_seed;
-      std::memcpy(&freeze_seed, &fh, sizeof(uint64_t));
-      uint64_t freeze_dur = NINA_EVENT_FREEZE_MIN + (freeze_seed % NINA_EVENT_FREEZE_RANGE);
-
-      if (lookback <= freeze_dur)
-      {
-        LOG_PRINT_L2("NINA-EVENT-V2: events frozen at height " << height
-                     << " due to spike at " << T << " (freeze " << freeze_dur << " blocks)");
-        return true;
-      }
-    }
-  }
-
-  // --- Check for spike at the current height ---
-  if (detect_spike_at(height))
-  {
-    LOG_PRINT_L2("NINA-EVENT-V2: events frozen at height " << height
-                 << " due to active hashrate spike");
-    return true;
-  }
-
-  return false;
-}
-//------------------------------------------------------------------
 double Blockchain::calculate_current_hashrate(const std::vector<difficulty_type>& difficulties) const
 {
   if (difficulties.empty()) 
@@ -1661,23 +1559,10 @@ bool Blockchain::validate_miner_transaction(const block& b, size_t cumulative_bl
     get_last_n_blocks_weights(last_blocks_weights, CRYPTONOTE_REWARD_BLOCKS_WINDOW);
     median_weight = epee::misc_utils::median(last_blocks_weights);
   }
-  // NINA Event V2: use multi-hash seed for post-fork, single prev_id for legacy
+  // NINA Event: use prev_id as the event seed
   const uint64_t cur_height = m_db->height();
-  crypto::hash event_seed;
-  const crypto::hash *event_seed_ptr;
-  bool frozen = false;
-  if (cur_height >= NINA_EVENT_V2_HEIGHT)
-  {
-    event_seed = compute_event_seed_v2(cur_height);
-    event_seed_ptr = &event_seed;
-    frozen = check_events_frozen(cur_height);
-  }
-  else
-  {
-    event_seed_ptr = &b.prev_id;
-  }
 
-  if (!get_block_reward(median_weight, cumulative_block_weight, already_generated_coins, base_reward, version, cur_height, event_seed_ptr, frozen))
+  if (!get_block_reward(median_weight, cumulative_block_weight, already_generated_coins, base_reward, version, cur_height, &b.prev_id))
   {
     MERROR_VER("block weight " << cumulative_block_weight << " is bigger than allowed for this blockchain");
     return false;
@@ -2015,22 +1900,9 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
   uint8_t hf_version = b.major_version;
   size_t max_outs = hf_version >= 4 ? 1 : 11;
 
-  // NINA Event V2: compute multi-hash seed and spike freeze for block template
-  crypto::hash template_event_seed;
-  const crypto::hash *template_seed_ptr;
-  bool template_frozen = false;
-  if (height >= NINA_EVENT_V2_HEIGHT)
-  {
-    template_event_seed = compute_event_seed_v2(height);
-    template_seed_ptr = &template_event_seed;
-    template_frozen = check_events_frozen(height);
-  }
-  else
-  {
-    template_seed_ptr = &b.prev_id;
-  }
+  // NINA Event: use prev_id as the event seed
 
-  bool r = construct_miner_tx(height, median_weight, already_generated_coins, txs_weight, fee, miner_address, b.miner_tx, ex_nonce, max_outs, hf_version, template_seed_ptr, template_frozen);
+  bool r = construct_miner_tx(height, median_weight, already_generated_coins, txs_weight, fee, miner_address, b.miner_tx, ex_nonce, max_outs, hf_version, &b.prev_id);
   CHECK_AND_ASSERT_MES(r, false, "Failed to construct miner tx, first chance");
   cumulative_weight = txs_weight + get_transaction_weight(b.miner_tx);
 #if defined(DEBUG_CREATE_BLOCK_TEMPLATE)
@@ -2039,7 +1911,7 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
 #endif
   for (size_t try_count = 0; try_count != 10; ++try_count)
   {
-    r = construct_miner_tx(height, median_weight, already_generated_coins, cumulative_weight, fee, miner_address, b.miner_tx, ex_nonce, max_outs, hf_version, template_seed_ptr, template_frozen);
+    r = construct_miner_tx(height, median_weight, already_generated_coins, cumulative_weight, fee, miner_address, b.miner_tx, ex_nonce, max_outs, hf_version, &b.prev_id);
 
     CHECK_AND_ASSERT_MES(r, false, "Failed to construct miner tx, second chance");
     size_t coinbase_weight = get_transaction_weight(b.miner_tx);
@@ -2082,6 +1954,14 @@ bool Blockchain::create_block_template(block& b, const crypto::hash *from_block,
     MDEBUG("Creating block template: miner tx weight " << coinbase_weight <<
         ", cumulative weight " << cumulative_weight << " is now good");
 #endif
+
+    // NINA: embed AI memory snapshot into the block
+    if (daemonize::is_nina_advanced_initialized()) {
+      b.nina_data = daemonize::nina_generate_block_snapshot(height);
+      if (!b.nina_data.empty()) {
+        MDEBUG("[NINA-BLOCK] Embedded " << b.nina_data.size() << " bytes of NINA memory at height " << height);
+      }
+    }
 
     if (!from_block)
       cache_block_template(b, miner_address, ex_nonce, diffic, height, expected_reward, cumulative_weight, seed_height, seed_hash, pool_cookie);
@@ -4130,21 +4010,7 @@ bool Blockchain::check_fee(size_t tx_weight, uint64_t fee) const
     const uint64_t blockchain_height = m_db->height();
     already_generated_coins = blockchain_height ? m_db->get_block_already_generated_coins(blockchain_height - 1) : 0;
     const crypto::hash prev_id = get_tail_id();
-    // Fee estimation: use multi-hash seed for V2, prev_id for legacy
-    crypto::hash fee_seed;
-    const crypto::hash *fee_seed_ptr;
-    bool fee_frozen = false;
-    if (blockchain_height >= NINA_EVENT_V2_HEIGHT)
-    {
-      fee_seed = compute_event_seed_v2(blockchain_height);
-      fee_seed_ptr = &fee_seed;
-      fee_frozen = check_events_frozen(blockchain_height);
-    }
-    else
-    {
-      fee_seed_ptr = &prev_id;
-    }
-    if (!get_block_reward(median, 1, already_generated_coins, base_reward, version, blockchain_height, fee_seed_ptr, fee_frozen))
+    if (!get_block_reward(median, 1, already_generated_coins, base_reward, version, blockchain_height, &prev_id))
       return false;
   }
 
@@ -4236,21 +4102,7 @@ void Blockchain::get_dynamic_base_fee_estimate_2021_scaling(uint64_t grace_block
   uint64_t already_generated_coins = db_height ? m_db->get_block_already_generated_coins(db_height - 1) : 0;
   uint64_t base_reward;
   const crypto::hash prev_id = get_tail_id();
-  // Fee estimation: use multi-hash seed for V2, prev_id for legacy
-  crypto::hash fee_seed_2021;
-  const crypto::hash *fee_seed_ptr_2021;
-  bool fee_frozen_2021 = false;
-  if (db_height >= NINA_EVENT_V2_HEIGHT)
-  {
-    fee_seed_2021 = compute_event_seed_v2(db_height);
-    fee_seed_ptr_2021 = &fee_seed_2021;
-    fee_frozen_2021 = check_events_frozen(db_height);
-  }
-  else
-  {
-    fee_seed_ptr_2021 = &prev_id;
-  }
-  if (!get_block_reward(m_current_block_cumul_weight_limit / 2, 1, already_generated_coins, base_reward, version, db_height, fee_seed_ptr_2021, fee_frozen_2021))
+  if (!get_block_reward(m_current_block_cumul_weight_limit / 2, 1, already_generated_coins, base_reward, version, db_height, &prev_id))
   {
     MERROR("Failed to determine block reward, using placeholder " << print_money(BLOCK_REWARD_OVERESTIMATE) << " as a high bound");
     base_reward = BLOCK_REWARD_OVERESTIMATE;
@@ -5016,7 +4868,13 @@ leave:
     {
       uint64_t long_term_block_weight = get_next_long_term_block_weight(block_weight);
       cryptonote::blobdata bd = cryptonote::block_to_blob(bl);
-      new_height = m_db->add_block(std::make_pair(std::move(bl), std::move(bd)), block_weight, long_term_block_weight, cumulative_difficulty, already_generated_coins, txs);
+      // ══ NINA IS THE SOLE WRITER ══
+      // The daemon has verified everything (PoW, signatures, key images, consensus).
+      // Now NINA writes the block to LMDB.  She is the only entity that calls add_block().
+      new_height = daemonize::nina_write_block(
+          m_db, std::make_pair(std::move(bl), std::move(bd)),
+          block_weight, long_term_block_weight,
+          cumulative_difficulty, already_generated_coins, txs);
     }
     catch (const KEY_IMAGE_EXISTS& e)
     {
@@ -5120,6 +4978,13 @@ leave:
         // Protector should NEVER break consensus
       }
     }
+  }
+
+  // 🧠 NINA: Import memory snapshot from block's nina_data field.
+  // Every block carries an immutable NINA snapshot — new nodes inherit
+  // the full AI memory simply by syncing the blockchain.
+  if (!bl.nina_data.empty()) {
+    daemonize::nina_import_block_snapshot(new_height - 1, bl.nina_data);
   }
 
   // 📊 NINA BlockDataLogger — record real block features to CSV for ML training
@@ -6370,7 +6235,7 @@ void Blockchain::cancel()
 }
 
 #if defined(PER_BLOCK_CHECKPOINT)
-// checkpoints.dat: 0 groups, 0 blocks covered (chain < 512 blocks), updated 2026-03-05
+// checkpoints.dat: 0 groups, 0 blocks covered (blockchain starts from zero)
 static const char expected_block_hashes_hash[] = "df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119";
 // NINA P2P: Centralized download URL removed — NINA generates checkpoints.dat locally
 // static const char CHECKPOINTS_DAT_URL[] = "https://ninacatcoin.es/checkpoints/checkpoints.dat";

@@ -117,6 +117,7 @@ namespace cryptonote
     size_t m_num_requested;
     copyable_atomic m_new_stripe_notification{0};
     copyable_atomic m_idle_peer_notification{0};
+    copyable_atomic m_nina_sync_needed{0};
   };
 
   inline std::string get_protocol_state_string(cryptonote_connection_context::state s)

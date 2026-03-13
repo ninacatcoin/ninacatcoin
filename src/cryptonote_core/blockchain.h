@@ -1492,33 +1492,6 @@ namespace cryptonote
     bool validate_miner_transaction(const block& b, size_t cumulative_block_weight, uint64_t fee, uint64_t& base_reward, uint64_t already_generated_coins, bool &partial_block_reward, uint8_t version);
 
     /**
-     * @brief compute the multi-hash event seed for V2 event system
-     *
-     * Combines the last NINA_EVENT_MULTI_HASH_DEPTH block hashes into a single
-     * seed via cn_fast_hash. This prevents manipulation because an attacker
-     * would need to control 10+ consecutive blocks.
-     *
-     * @param height the block height to compute the seed for
-     *
-     * @return the combined hash seed
-     */
-    crypto::hash compute_event_seed_v2(uint64_t height) const;
-
-    /**
-     * @brief check whether X2/X200 events are frozen due to hashrate spike
-     *
-     * Scans backwards up to NINA_EVENT_FREEZE_MIN + NINA_EVENT_FREEZE_RANGE - 1
-     * blocks looking for spike triggers. Each spike trigger has a pseudo-random
-     * freeze duration (5-30 blocks) derived from its block hash.
-     * Also checks for a spike at the current height.
-     *
-     * @param height the block height to check
-     *
-     * @return true if events should be frozen (suppressed)
-     */
-    bool check_events_frozen(uint64_t height) const;
-
-    /**
      * @brief reverts the blockchain to its previous state following a failed switch
      *
      * If Blockchain fails to switch to an alternate chain when it means

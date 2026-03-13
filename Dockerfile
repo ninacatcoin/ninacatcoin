@@ -49,12 +49,12 @@ VOLUME /home/ninacatcoin/.ninacatcoin
 # ninacatcoin-wallet-cli
 VOLUME /wallet
 
-EXPOSE 19080
-EXPOSE 19081
+EXPOSE 19020
+EXPOSE 19021
 
 # switch to user ninacatcoin
 USER ninacatcoin
 
 ENTRYPOINT ["ninacatcoind"]
-CMD ["--p2p-bind-ip=0.0.0.0", "--p2p-bind-port=19080", "--rpc-bind-ip=0.0.0.0", "--rpc-bind-port=19081", "--non-interactive", "--confirm-external-bind"]
+CMD ["--p2p-bind-ip=0.0.0.0", "--p2p-bind-port=19020", "--rpc-bind-ip=0.0.0.0", "--rpc-bind-port=19021", "--non-interactive", "--confirm-external-bind"]
 

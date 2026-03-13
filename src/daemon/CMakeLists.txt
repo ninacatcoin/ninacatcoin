@@ -35,13 +35,13 @@ set(daemon_sources
   rpc_command_executor.cpp
   discord_notifier.cpp
   discord_ia_integration.cpp
-  nina_suggestion_engine.cpp
-  nina_network_health_monitor.cpp
-  nina_parameter_adjustor.cpp
-  nina_consensus_tuner.cpp
-  nina_explanation_engine.cpp
-  nina_governance_engine.cpp
-  nina_adaptive_learning.cpp
+  # nina_suggestion_engine.cpp — moved to ninacatcoin_ai library
+  # nina_network_health_monitor.cpp — moved to ninacatcoin_ai library
+  # nina_parameter_adjustor.cpp — moved to ninacatcoin_ai library
+  # nina_consensus_tuner.cpp — moved to ninacatcoin_ai library
+  # nina_explanation_engine.cpp — moved to ninacatcoin_ai library
+  # nina_governance_engine.cpp — moved to ninacatcoin_ai library
+  # nina_adaptive_learning.cpp — moved to ninacatcoin_ai library
   nina_human_collaboration.cpp
 )
 

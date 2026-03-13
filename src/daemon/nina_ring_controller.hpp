@@ -23,6 +23,7 @@
 #include <cstdint>
 #include <cstddef>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -128,9 +129,30 @@ public:
     {
         std::lock_guard<std::mutex> lock(m_mutex);
 
+        // ── Same-block fast cache (multiple TXs in one block) ──────────
+        if (height == m_last_eval_height && m_last_eval_height > 0) {
+            return m_cached_mixin;
+        }
+
+        // ── Sync detection: skip LLM when processing historical blocks ─
+        // Normal operation: 1 block per ~120 seconds.
+        // During sync: many blocks per second.
+        // If a new block is processed within 30 seconds of the previous,
+        // we are catching up (syncing) and should skip LLM inference.
+        auto now = std::chrono::steady_clock::now();
+        bool is_syncing_fast = false;
+        if (m_last_eval_height > 0 && height > m_last_eval_height) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                now - m_last_eval_time).count();
+            is_syncing_fast = (elapsed < 30);
+        }
+        m_last_eval_time = now;
+        m_last_eval_height = height;
+
         // ── Pre-v18: delegate to legacy thresholds ──
         if (height < NINA_V18_RING_ACTIVE_HEIGHT) {
-            return get_legacy_mixin(num_rct, hf_version);
+            m_cached_mixin = get_legacy_mixin(num_rct, hf_version);
+            return m_cached_mixin;
         }
 
         // ── Compute organic traffic metrics from sliding window ──
@@ -144,6 +166,22 @@ public:
         }
         if (prev_out == 0 && m_prev_window_outputs > 0) {
             prev_out = m_prev_window_outputs;
+        }
+
+        // ── Young-chain / fresh-sync safeguard ──────────────────────────
+        // On first boot the sliding window grows block-by-block from
+        // genesis, so m_prev_window_outputs stays 0 until the window
+        // is full (>120 blocks pruned).  With prev_out == 0 the
+        // volume_ramp becomes outputs_last_100 / 1 ≈ 100 → CRITICAL →
+        // ring 31, which is a false alarm.
+        // Fix: when we do NOT yet have a meaningful previous-window
+        // baseline, use the current window average as a reasonable
+        // stand-in so volume_ramp stays close to 1.0.
+        if (prev_out == 0 && outputs_last_100 > 0) {
+            // Use outputs_last_100 itself as the baseline (ramp = 1.0)
+            prev_out = outputs_last_100;
+            MINFO("[NINA-RING] No prev_window baseline yet (first sync?) — "
+                  "using outputs_last_100 (" << outputs_last_100 << ") as baseline");
         }
 
         // ── v18+: ASK NINA to evaluate the traffic pattern ──
@@ -171,8 +209,13 @@ public:
         event.set("volume_ramp", static_cast<double>(volume_ramp));
         event.set("spend_ratio", static_cast<double>(spend_ratio));
 
-        // \u2500\u2500 NINA DECIDES \u2500\u2500
-        auto actions = NinaDecisionEngine::getInstance().evaluate(event);
+        // ── NINA DECIDES (skip LLM during sync) ──
+        std::vector<NinaAction> actions;
+        if (!is_syncing_fast) {
+            actions = NinaDecisionEngine::getInstance().evaluate(event);
+        } else {
+            MINFO("[NINA-RING] Syncing — skipping LLM, using fast compute_threat()");
+        }
 
         NinaThreatLevel new_level = THREAT_NORMAL;  // default
         bool nina_decided = false;
@@ -230,6 +273,7 @@ public:
                   << " decided_by=" << (nina_decided ? "NINA_LLM" : "LEGACY_FALLBACK"));
         }
 
+        m_cached_mixin = mixin;
         return mixin;
     }
 
@@ -327,6 +371,11 @@ private:
     uint64_t m_sustained_higher_count     = 0;  // consecutive blocks at higher level
     uint64_t m_sustained_lower_count      = 0;  // consecutive blocks at lower level
     uint64_t m_prev_window_outputs        = 0;  // outputs in previous 100-block window
+
+    // ── Sync detection: skip LLM during initial block sync ─────────────
+    uint64_t m_last_eval_height              = 0;
+    std::chrono::steady_clock::time_point m_last_eval_time{};
+    size_t   m_cached_mixin                  = 15;
 
     std::map<uint64_t, OutputWindowEntry> m_output_window;
 

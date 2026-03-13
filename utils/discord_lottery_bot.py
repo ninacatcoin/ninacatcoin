@@ -81,7 +81,7 @@ def env_int(name, default):
     return int(value) if value is not None else default
 
 
-RPC_URL = os.getenv("NINACATCOIN_RPC_URL", "http://127.0.0.1:19081/json_rpc")
+RPC_URL = os.getenv("NINACATCOIN_RPC_URL", "http://127.0.0.1:19021/json_rpc")
 WEBHOOK_URL = os.getenv("NINACATCOIN_DISCORD_WEBHOOK", "").strip()
 USER_AGENT = "NinacatcoinBot/1.0"
 POLL_SECONDS = env_int("NINACATCOIN_POLL_SECONDS", 15)
@@ -98,15 +98,13 @@ EXPLORER_URL = os.getenv("NINACATCOIN_EXPLORER_URL", "").strip()  # e.g., https:
 
 COIN = env_int("NINACATCOIN_COIN", 1000000000000)
 DISPLAY_DECIMALS = env_int("NINACATCOIN_DISPLAY_DECIMALS", 12)
-MONEY_SUPPLY = env_int("NINACATCOIN_MONEY_SUPPLY", 900000000 * COIN)
-FINAL_BRAKE_REMAINING = env_int("NINACATCOIN_FINAL_BRAKE_REMAINING", 10000 * COIN)
+MONEY_SUPPLY = (1 << 64) - 1  # uint64_max — Monero-style infinite supply
+EMISSION_SPEED_FACTOR = env_int("NINACATCOIN_EMISSION_SPEED_FACTOR", 20)  # 21 - (target_minutes - 1)
+FINAL_SUBSIDY = env_int("NINACATCOIN_FINAL_SUBSIDY", 800000000000)  # 0.80 NINA per block (tail emission)
 BLOCKS_PER_YEAR = env_int("NINACATCOIN_BLOCKS_PER_YEAR", 262800)
 X2_TIMES_PER_YEAR = env_int("NINACATCOIN_X2_TIMES_PER_YEAR", 183)
 X200_TIMES_PER_YEAR = env_int("NINACATCOIN_X200_TIMES_PER_YEAR", 6)
-GENESIS_REWARD = env_int("NINACATCOIN_GENESIS_REWARD", 10000 * COIN)
-BASE_BLOCK_REWARD = env_int("NINACATCOIN_BASE_BLOCK_REWARD", 4 * COIN)
-MIN_BLOCK_REWARD = env_int("NINACATCOIN_MIN_BLOCK_REWARD", 2 * COIN)
-HALVING_INTERVAL_BLOCKS = env_int("NINACATCOIN_HALVING_INTERVAL_BLOCKS", 262800)
+GENESIS_REWARD = env_int("NINACATCOIN_GENESIS_REWARD", 1000000 * COIN)  # 1M NINA
 X2_START_HEIGHT = env_int("NINACATCOIN_X2_START_HEIGHT", 100)
 
 
@@ -186,12 +184,11 @@ def event_roll(prev_hash_hex, tag):
 
 
 def classify_event(height, prev_hash_hex, already_generated):
-    remaining = MONEY_SUPPLY - already_generated
-    events_allowed = remaining > FINAL_BRAKE_REMAINING
+    # Events always active (infinite supply, no brake needed)
     is_x2 = False
     is_x200 = False
 
-    if events_allowed and height >= X2_START_HEIGHT:
+    if height >= X2_START_HEIGHT:
         if height == X2_START_HEIGHT:
             is_x2 = True
         else:
@@ -199,10 +196,9 @@ def classify_event(height, prev_hash_hex, already_generated):
             if (rnd2 % BLOCKS_PER_YEAR) < X2_TIMES_PER_YEAR:
                 is_x2 = True
 
-    if events_allowed:
-        rnd200 = event_roll(prev_hash_hex, 200)
-        if (rnd200 % BLOCKS_PER_YEAR) < X200_TIMES_PER_YEAR:
-            is_x200 = True
+    rnd200 = event_roll(prev_hash_hex, 200)
+    if (rnd200 % BLOCKS_PER_YEAR) < X200_TIMES_PER_YEAR:
+        is_x200 = True
 
     return is_x2, is_x200
 
@@ -241,28 +237,24 @@ def init_state():
     return state
 
 
-def get_base_reward(height):
-    """Calculate base block reward without multipliers"""
+def get_base_reward(height, already_generated):
+    """Monero-style smooth emission: base_reward = (MONEY_SUPPLY - already_generated) >> emission_speed_factor"""
     if height == 0:
         return GENESIS_REWARD
-    halvings = height // HALVING_INTERVAL_BLOCKS
-    base_reward = BASE_BLOCK_REWARD >> halvings
-    if base_reward < MIN_BLOCK_REWARD:
-        base_reward = MIN_BLOCK_REWARD
+    base_reward = (MONEY_SUPPLY - already_generated) >> EMISSION_SPEED_FACTOR
+    if base_reward < FINAL_SUBSIDY:
+        base_reward = FINAL_SUBSIDY
     return base_reward
 
 
 def validate_event_payout(header, is_x2, is_x200, already_generated, emission):
     """Verify that block actually paid X2 or X200"""
-    base_reward = get_base_reward(header["height"])
+    base_reward = get_base_reward(header["height"], already_generated)
     expected_reward = base_reward
     if is_x2:
         expected_reward *= 2
     if is_x200:
         expected_reward *= 200
-    remaining = MONEY_SUPPLY - already_generated
-    if remaining > 0 and expected_reward > remaining:
-        expected_reward = remaining
     if emission != expected_reward:
         tag = "X2+X200" if is_x2 and is_x200 else ("X2" if is_x2 else "X200")
         print(f"{tag} event at {header['height']}: expected {expected_reward}, got {emission}")

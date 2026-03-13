@@ -86,8 +86,8 @@ const uint64_t AMOUNT_1nia  =  1000000000000L;
 
 const std::string PAYMENT_ID_EMPTY = "";
 
-std::string TESTNET_DAEMON_ADDRESS = "localhost:29081";
-std::string MAINNET_DAEMON_ADDRESS = "localhost:19081";
+std::string TESTNET_DAEMON_ADDRESS = "localhost:29021";
+std::string MAINNET_DAEMON_ADDRESS = "localhost:19021";
 
 
 }

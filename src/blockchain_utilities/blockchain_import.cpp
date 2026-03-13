@@ -33,7 +33,9 @@
 
 #include <boost/filesystem.hpp>
 #include <boost/algorithm/string.hpp>
+#ifndef _WIN32
 #include <unistd.h>
+#endif
 #include "misc_log_ex.h"
 #include "bootstrap_file.h"
 #include "bootstrap_serialization.h"

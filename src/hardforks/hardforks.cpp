@@ -32,30 +32,26 @@
 #define ninacatcoin_DEFAULT_LOG_CATEGORY "blockchain.hardforks"
 
 // ===== NINACATCOIN HARD FORK SCHEDULE =====
-// Two-phase hard fork:
-//   Heights 0-2: v1 (genesis + 2 blocks for fork voting window)
-//   Height 3+:   v18 — all protocol features active:
+// Single-phase: v18 from genesis (block 0).
+//   All protocol features active from the start:
 //     RingCT, CLSAG, Bulletproof+, View Tags, RandomX PoW, 2021 scaling,
 //     AI-enhanced consensus, NINA full on-chain (memory, model hash, checkpoints).
 
 const hardfork_t mainnet_hard_forks[] = {
-  // v1: genesis and early blocks (heights 0-2)
-  { 1,  1, 0, 1706313600 },
-  // v18: all features active from height 3
-  { 18, 3, 0, 1706313601 },
+  // v18: all features active from genesis
+  { 18, 0, 0, 1706313600 },
 };
 const size_t num_mainnet_hard_forks = sizeof(mainnet_hard_forks) / sizeof(mainnet_hard_forks[0]);
-const uint64_t mainnet_hard_fork_version_1_till = 2; // heights 0, 1, 2 are v1
+const uint64_t mainnet_hard_fork_version_1_till = 0;
 
 const hardfork_t testnet_hard_forks[] = {
-  { 1,  1, 0, 1706313600 },
-  { 18, 3, 0, 1706313601 },
+  { 18, 0, 0, 1706313600 },
 };
 const size_t num_testnet_hard_forks = sizeof(testnet_hard_forks) / sizeof(testnet_hard_forks[0]);
-const uint64_t testnet_hard_fork_version_1_till = 2;
+const uint64_t testnet_hard_fork_version_1_till = 0;
 
 const hardfork_t stagenet_hard_forks[] = {
-  { 1,  1, 0, 1706313600 },
-  { 18, 3, 0, 1706313601 },
+  { 18, 0, 0, 1706313600 },
 };
 const size_t num_stagenet_hard_forks = sizeof(stagenet_hard_forks) / sizeof(stagenet_hard_forks[0]);
+const uint64_t stagenet_hard_fork_version_1_till = 0;

@@ -863,7 +863,7 @@ namespace
 TEST(get_network_address_host_and_port, ipv4)
 {
     na_host_and_port_test("9.9.9.9", "9.9.9.9", "xxxxx");
-    na_host_and_port_test("9.9.9.9:19081", "9.9.9.9", "19081");
+    na_host_and_port_test("9.9.9.9:19021", "9.9.9.9", "19021");
 }
 
 TEST(get_network_address_host_and_port, ipv6)
@@ -879,8 +879,8 @@ TEST(get_network_address_host_and_port, ipv6)
 TEST(get_network_address_host_and_port, hostname)
 {
     na_host_and_port_test("localhost", "localhost", "xxxxx");
-    na_host_and_port_test("bar:29080", "bar", "29080"); // Issue https://github.com/ninacatcoin/ninacatcoin/issues/8633
-    na_host_and_port_test("niachain.net:19081", "niachain.net", "19081");
+    na_host_and_port_test("bar:29020", "bar", "29020"); // Issue https://github.com/ninacatcoin/ninacatcoin/issues/8633
+    na_host_and_port_test("niachain.net:19021", "niachain.net", "19021");
 }
 
 namespace

@@ -731,24 +731,21 @@ namespace nodetool
     const auto port = std::to_string(cryptonote::get_config(m_nettype).P2P_DEFAULT_PORT);
     if (m_nettype == cryptonote::TESTNET)
     {
-      full_addrs.insert("87.106.7.156:29080");  // seed1, seed2
-      full_addrs.insert("217.154.196.9:29080"); // seed3, seed4
-      full_addrs.insert("31.97.176.229:29080");
+      full_addrs.insert("87.106.7.156:29020");  // seed1, seed2
+      full_addrs.insert("217.154.196.9:29020"); // seed3, seed4
     }
     else if (m_nettype == cryptonote::STAGENET)
     {
-      full_addrs.insert("87.106.7.156:39080");
-      full_addrs.insert("217.154.196.9:39080");
-      full_addrs.insert("31.97.176.229:39080");
+      full_addrs.insert("87.106.7.156:39020");
+      full_addrs.insert("217.154.196.9:39020");
     }
     else if (m_nettype == cryptonote::FAKECHAIN)
     {
     }
     else
     {
-      full_addrs.insert("87.106.7.156:19080");
-      full_addrs.insert("217.154.196.9:19080");
-      full_addrs.insert("31.97.176.229:19080");
+      full_addrs.insert("87.106.7.156:19020");
+      full_addrs.insert("217.154.196.9:19020");
     }
     return full_addrs;
   }
@@ -1209,6 +1206,12 @@ namespace nodetool
         if(azone == epee::net_utils::zone::public_ && rsp.node_data.peer_id == zone.m_config.m_peer_id)
         {
           LOG_DEBUG_CC(context, "Connection to self detected, dropping connection");
+          {
+            CRITICAL_REGION_LOCAL(m_self_detected_lock);
+            const std::string self_addr = context.m_remote_address.host_str();
+            if (m_self_detected_addresses.insert(self_addr).second)
+              MINFO("Permanently blocking self-address: " << self_addr);
+          }
           hsh_result = false;
           return;
         }
@@ -1385,6 +1388,12 @@ namespace nodetool
 
     if (zone.m_our_address == na)
       return false;
+
+    {
+      CRITICAL_REGION_LOCAL(m_self_detected_lock);
+      if (m_self_detected_addresses.count(na.host_str()))
+        return false;
+    }
 
     if (zone.m_current_number_of_out_peers == zone.m_config.m_net_config.max_out_connection_count) // out peers limit
     {
@@ -1844,6 +1853,7 @@ namespace nodetool
       size_t try_count = 0;
       bool is_connected_to_at_least_one_seed_node = false;
       size_t current_index = crypto::rand_idx(server.m_seed_nodes.size());
+      bool got_peerlist_from_seed = false;
       while(true)
       {
         if(server.m_net_server.is_stop_signal_sent())
@@ -1854,7 +1864,10 @@ namespace nodetool
         if (is_peer_used(pe_seed))
           is_connected_to_at_least_one_seed_node = true;
         else if (try_to_connect_and_handshake_with_new_peer(server.m_seed_nodes[current_index], true))
+        {
+          got_peerlist_from_seed = true;
           break;
+        }
         if(++try_count > server.m_seed_nodes.size())
         {
           // only IP zone has fallback (to direct IP) seeds
@@ -1888,6 +1901,35 @@ namespace nodetool
         if(++current_index >= server.m_seed_nodes.size())
           current_index = 0;
       }
+      // Small network bootstrap: if after connect_to_seed the peerlist is
+      // still empty (common for networks with few nodes), make persistent
+      // connections directly to seed nodes instead of just taking peerlist.
+      // Also reconnect to seeds when we have zero outgoing connections
+      // (prevents isolation in small networks).
+      bool needs_seed_connections = !server.m_peerlist.get_white_peers_count() && !server.m_peerlist.get_gray_peers_count();
+      if (!needs_seed_connections)
+      {
+        size_t out_count = 0;
+        server.m_net_server.get_config_object().foreach_connection([&](const p2p_connection_context& cntxt) {
+          if (!cntxt.m_is_income && !cntxt.is_ping)
+            ++out_count;
+          return true;
+        });
+        needs_seed_connections = (out_count == 0);
+      }
+      if (needs_seed_connections)
+      {
+        MINFO("No outgoing connections or empty peerlist, connecting to seed nodes directly");
+        for (const auto& seed : server.m_seed_nodes)
+        {
+          if(server.m_net_server.is_stop_signal_sent())
+            return false;
+          peerlist_entry pe{};
+          pe.adr = seed;
+          if (!is_peer_used(pe))
+            try_to_connect_and_handshake_with_new_peer(seed, false);
+        }
+      }
       return true;
   }
   //-----------------------------------------------------------------------------------
@@ -1905,7 +1947,8 @@ namespace nodetool
     for(auto& zone : m_network_zones)
     {
       size_t start_conn_count = get_outgoing_connections_count(zone.second);
-      if(!zone.second.m_peerlist.get_white_peers_count() && !connect_to_seed(zone.first))
+      // Always try seeds when we have zero outgoing connections (small network resilience)
+      if((!zone.second.m_peerlist.get_white_peers_count() || start_conn_count == 0) && !connect_to_seed(zone.first))
       {
         continue;
       }
@@ -1917,6 +1960,8 @@ namespace nodetool
       // carefully avoid `continue` in nested loop
       
       size_t conn_count = get_outgoing_connections_count(zone.second);
+      size_t gray_attempts = 0;      // limit gray peer attempts to avoid HANDSHAKE Failed spam
+      const size_t max_gray_attempts = 2;
       while(conn_count < zone.second.m_config.m_net_config.max_out_connection_count)
       {
         const size_t expected_white_connections = m_payload_handler.get_next_needed_pruning_stripe().second ? zone.second.m_config.m_net_config.max_out_connection_count : base_expected_white_connections;
@@ -1930,12 +1975,16 @@ namespace nodetool
             && make_expected_connections_count(zone.second, white, expected_white_connections));
           //then do grey list
           while (get_outgoing_connections_count(zone.second) < zone.second.m_config.m_net_config.max_out_connection_count
-            && make_expected_connections_count(zone.second, gray, zone.second.m_config.m_net_config.max_out_connection_count));
+            && gray_attempts < max_gray_attempts
+            && make_expected_connections_count(zone.second, gray, zone.second.m_config.m_net_config.max_out_connection_count))
+            { ++gray_attempts; }
         }else
         {
           //start from grey list
           while (get_outgoing_connections_count(zone.second) < zone.second.m_config.m_net_config.max_out_connection_count
-            && make_expected_connections_count(zone.second, gray, zone.second.m_config.m_net_config.max_out_connection_count));
+            && gray_attempts < max_gray_attempts
+            && make_expected_connections_count(zone.second, gray, zone.second.m_config.m_net_config.max_out_connection_count))
+            { ++gray_attempts; }
           //and then do white list
           while (get_outgoing_connections_count(zone.second) < zone.second.m_config.m_net_config.max_out_connection_count
             && make_expected_connections_count(zone.second, white, zone.second.m_config.m_net_config.max_out_connection_count));
@@ -2639,6 +2688,12 @@ namespace nodetool
     if(azone == epee::net_utils::zone::public_ && arg.node_data.peer_id == zone.m_config.m_peer_id)
     {
       LOG_DEBUG_CC(context, "Connection to self detected, dropping connection");
+      {
+        CRITICAL_REGION_LOCAL(m_self_detected_lock);
+        const std::string self_addr = context.m_remote_address.host_str();
+        if (m_self_detected_addresses.insert(self_addr).second)
+          MINFO("Permanently blocking self-address: " << self_addr);
+      }
       drop_connection(context);
       return 1;
     }

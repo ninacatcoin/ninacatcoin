@@ -81,7 +81,7 @@ def main() -> int:
     )
     parser.add_argument(
         "--rpc-url",
-        default="http://127.0.0.1:19081/json_rpc",
+        default="http://127.0.0.1:19021/json_rpc",
         help="RPC endpoint for the daemon (default: %(default)s)",
     )
     parser.add_argument(

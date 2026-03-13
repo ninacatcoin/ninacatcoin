@@ -258,10 +258,12 @@ std::string NinaLLMEngine::run_inference(const std::string& prompt)
     const llama_vocab* vocab = llama_model_get_vocab(m_model);
 
     // Tokenize the prompt
+    // add_special=false: the prompt already contains <|begin_of_text|> (BOS)
+    // explicitly in the text, so we must NOT add another one.
     const int n_prompt_max = m_config.n_ctx;
     std::vector<llama_token> tokens(n_prompt_max);
     int n_tokens = llama_tokenize(vocab, prompt.c_str(), prompt.size(),
-                                  tokens.data(), n_prompt_max, true, true);
+                                  tokens.data(), n_prompt_max, false, true);
     if (n_tokens < 0) {
         MERROR("[NINA-LLM] Tokenization failed for prompt of length " << prompt.size());
         return "";
@@ -278,11 +280,15 @@ std::string NinaLLMEngine::run_inference(const std::string& prompt)
     // Clear KV cache for new inference
     llama_memory_clear(llama_get_memory(m_ctx), true);
 
-    // Create batch and process prompt
-    llama_batch batch = llama_batch_get_one(tokens.data(), n_tokens);
-    if (llama_decode(m_ctx, batch) != 0) {
-        MERROR("[NINA-LLM] Failed to decode prompt");
-        return "";
+    // Process prompt in chunks of n_batch to avoid exceeding batch limit
+    const int n_batch = m_config.n_batch;
+    for (int i = 0; i < n_tokens; i += n_batch) {
+        int chunk_size = std::min(n_batch, n_tokens - i);
+        llama_batch batch = llama_batch_get_one(tokens.data() + i, chunk_size);
+        if (llama_decode(m_ctx, batch) != 0) {
+            MERROR("[NINA-LLM] Failed to decode prompt at offset " << i);
+            return "";
+        }
     }
 
     // Generate tokens
@@ -341,10 +347,11 @@ std::string NinaLLMEngine::run_inference_deterministic(const std::string& prompt
     if (!vocab) return "";
 
     // Tokenize
+    // add_special=false: the prompt already contains <|begin_of_text|> (BOS)
     const int n_prompt_max = m_config.n_ctx;
     std::vector<llama_token> tokens(n_prompt_max);
     int n_tokens = llama_tokenize(vocab, prompt.c_str(), prompt.size(),
-                                  tokens.data(), n_prompt_max, true, true);
+                                  tokens.data(), n_prompt_max, false, true);
     if (n_tokens < 0) {
         MERROR("[NINA-LLM] Decision tokenization failed");
         return "";
@@ -359,11 +366,15 @@ std::string NinaLLMEngine::run_inference_deterministic(const std::string& prompt
     // Clear KV cache
     llama_memory_clear(llama_get_memory(m_ctx), true);
 
-    // Decode prompt
-    llama_batch batch = llama_batch_get_one(tokens.data(), n_tokens);
-    if (llama_decode(m_ctx, batch) != 0) {
-        MERROR("[NINA-LLM] Decision prompt decode failed");
-        return "";
+    // Decode prompt in chunks of n_batch to avoid exceeding batch limit
+    const int n_batch = m_config.n_batch;
+    for (int i = 0; i < n_tokens; i += n_batch) {
+        int chunk_size = std::min(n_batch, n_tokens - i);
+        llama_batch batch = llama_batch_get_one(tokens.data() + i, chunk_size);
+        if (llama_decode(m_ctx, batch) != 0) {
+            MERROR("[NINA-LLM] Decision prompt decode failed at offset " << i);
+            return "";
+        }
     }
 
     // Create GREEDY sampler (temp=0.0) — deterministic, no randomness
@@ -472,8 +483,11 @@ AnalysisResult NinaLLMEngine::analyze(const AnalysisRequest& request)
 
     // ═══════════════════════════════════════════════════════════════════
     // FIREWALL LAYER 1: Validate INPUT before it reaches the LLM
+    // Only validate the user-supplied context_data, NOT the system prompt.
+    // The system prompt contains security constraint text (e.g. "send coins")
+    // that would trigger false positives in the firewall.
     // ═══════════════════════════════════════════════════════════════════
-    auto input_check = NinaLLMFirewall::validate_input(full_prompt);
+    auto input_check = NinaLLMFirewall::validate_input(request.context_data);
     if (!input_check.allowed) {
         MWARNING("[NINA-LLM] Prompt BLOCKED by firewall: " << input_check.blocked_reason);
         m_stats.failed_analyses++;

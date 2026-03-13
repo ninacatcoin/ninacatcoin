@@ -6,8 +6,12 @@
 #include <iostream>
 #include <algorithm>
 #include <cstring>
+#ifdef _WIN32
+#include <io.h>
+#else
 #include <fcntl.h>
 #include <unistd.h>
+#endif
 
 namespace ninacatcoin_ai {
 

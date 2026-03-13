@@ -93,6 +93,7 @@ using namespace epee;
 #include "device/device_cold.hpp"
 #include "device_trezor/device_trezor.hpp"
 #include "net/socks_connect.h"
+#include "ai/nina_ring_enhancer.hpp"
 
 extern "C"
 {
@@ -249,7 +250,7 @@ struct options {
   const command_line::arg_descriptor<bool> untrusted_daemon = {"untrusted-daemon", tools::wallet2::tr("Disable commands which rely on a trusted daemon"), false};
   const command_line::arg_descriptor<std::string> password = {"password", tools::wallet2::tr("Wallet password (escape/quote as needed)"), "", true};
   const command_line::arg_descriptor<std::string> password_file = wallet_args::arg_password_file();
-  const command_line::arg_descriptor<int> daemon_port = {"daemon-port", tools::wallet2::tr("Use daemon instance at port <arg> instead of 19081"), 0};
+  const command_line::arg_descriptor<int> daemon_port = {"daemon-port", tools::wallet2::tr("Use daemon instance at port <arg> instead of 19021"), 0};
   const command_line::arg_descriptor<std::string> daemon_login = {"daemon-login", tools::wallet2::tr("Specify username[:password] for daemon RPC client"), "", true};
   const command_line::arg_descriptor<std::string> daemon_ssl = {"daemon-ssl", tools::wallet2::tr("Enable SSL on daemon RPC connections: enabled|disabled|autodetect"), "autodetect"};
   const command_line::arg_descriptor<std::string> daemon_ssl_private_key = {"daemon-ssl-private-key", tools::wallet2::tr("Path to a PEM format private key"), ""};
@@ -2996,6 +2997,9 @@ void wallet2::process_outgoing(const crypto::hash &txid, const cryptonote::trans
 //----------------------------------------------------------------------------------------------------
 bool wallet2::should_skip_block(const cryptonote::block &b, uint64_t height) const
 {
+  // Never skip the genesis block — it may contain a spendable reward
+  if (height == 0)
+    return false;
   // seeking only for blocks that are not older then the wallet creation time plus 1 day. 1 day is for possible user incorrect time setup
   return !(b.timestamp + 60*60*24 > m_account.get_createtime() && height >= m_refresh_from_block_height && height >= m_skip_to_height);
 }
@@ -4103,7 +4107,10 @@ void wallet2::refresh(bool trusted_daemon, uint64_t start_height, uint64_t & blo
   m_run.store(true, std::memory_order_relaxed);
   if (start_height > m_blockchain.size() || m_refresh_from_block_height > m_blockchain.size() || m_skip_to_height > m_blockchain.size()) {
     if (!start_height)
-      start_height = std::max(m_refresh_from_block_height, m_skip_to_height);;
+      start_height = std::max(m_refresh_from_block_height, m_skip_to_height);
+    // Never skip past the genesis block if it hasn't been processed yet
+    if (m_blockchain.size() == 0 && start_height > 0)
+      start_height = 0;
     // we can shortcut by only pulling hashes up to the start_height
     fast_refresh(start_height, blocks_start_height, short_chain_history);
     // regenerate the history now that we've got a full set of hashes
@@ -5519,6 +5526,20 @@ void wallet2::setup_new_blockchain()
   m_blockchain.push_back(get_block_hash(b));
   m_last_block_reward = cryptonote::get_outs_money_amount(b.miner_tx);
   add_subaddress_account(tr("Primary account"));
+
+  // Scan genesis block's miner_tx for outputs belonging to this wallet.
+  // The genesis hash is already in m_blockchain, so refresh() will never
+  // re-fetch block 0 from the daemon. Without this explicit scan, any
+  // spendable reward in the genesis block (GENESIS_REWARD) goes undetected.
+  if (m_refresh_type != RefreshNoCoinbase && !b.miner_tx.vout.empty())
+  {
+    const crypto::hash txid = get_transaction_hash(b.miner_tx);
+    std::vector<uint64_t> o_indices(b.miner_tx.vout.size());
+    for (size_t i = 0; i < o_indices.size(); ++i)
+      o_indices[i] = i;
+    tx_cache_data tcd;
+    process_new_transaction(txid, b.miner_tx, o_indices, 0, b.major_version, b.timestamp, true, false, false, tcd);
+  }
 }
 
 void wallet2::create_keys_file(const std::string &wallet_, bool watch_only, const epee::wipeable_string &password, bool create_address_file)
@@ -9544,6 +9565,38 @@ void wallet2::get_outs(std::vector<std::vector<tools::wallet2::get_outs_entry>> 
         {
           add_output_to_lists({amount, 0});
           ++num_found;
+        }
+
+        // NINA AI: RingEnhancer — evaluate ring quality for RCT outputs
+        if (amount == 0 && has_rct && !seen_indices.empty()) {
+          try {
+            nina::NINARingEnhancer ring_enhancer;
+            std::vector<nina::RingMember> ring_members;
+            ring_members.reserve(seen_indices.size());
+            for (uint64_t gi : seen_indices) {
+              // Estimate block height from global index using rct_offsets
+              const uint64_t *begin_ptr = rct_offsets.data();
+              const uint64_t *end_ptr = begin_ptr + rct_offsets.size();
+              const uint64_t *it = std::lower_bound(begin_ptr, end_ptr, gi);
+              uint64_t est_height = static_cast<uint64_t>(it - begin_ptr);
+              ring_members.push_back({gi, est_height, gi == td.m_global_output_index});
+            }
+            uint64_t chain_height = rct_offsets.size();
+            auto quality = ring_enhancer.evaluate_ring(ring_members, chain_height);
+            if (!quality.passes_minimum) {
+              MWARNING("[NINA-RING] Low ring quality score: " << quality.overall_score
+                << "/100 (temporal=" << quality.temporal_spread_score
+                << " diversity=" << quality.block_diversity_score
+                << " buckets=" << quality.time_buckets_covered << "/6)"
+                << " — " << quality.recommendation);
+            } else {
+              MDEBUG("[NINA-RING] Ring quality: " << quality.overall_score
+                << "/100 (buckets=" << quality.time_buckets_covered
+                << "/6, blocks=" << quality.distinct_blocks << ")");
+            }
+          } catch (const std::exception& e) {
+            MWARNING("[NINA-RING] Quality evaluation error: " << e.what());
+          }
         }
       }
 

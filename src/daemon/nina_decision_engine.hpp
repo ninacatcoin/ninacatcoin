@@ -318,12 +318,40 @@ private:
     static std::string event_type_to_string(NinaEventType type);
 
     /**
+     * @brief Convert action type to short string for LMDB persistence
+     */
+    static std::string action_type_to_string(NinaActionType type);
+
+    /**
      * @brief Convert action string from LLM output to NinaActionType
      */
     static NinaActionType string_to_action_type(const std::string& s);
 
+    /**
+     * @brief Persist a decision event to LMDB (nina_decisions table)
+     * Writes SRC, EVT, CONF, MS, ACTS fields for pool graph consumption.
+     */
+    void persist_decision_event(
+        const NinaEvent& event,
+        const std::vector<NinaAction>& actions,
+        const std::string& source,
+        uint64_t inference_ms);
+
     mutable std::mutex m_mutex;
     DecisionStats m_stats;
+
+    // Last inference latency (set by evaluate_with_llm, read by evaluate)
+    uint64_t m_last_inference_ms{0};
+
+    // LLM decision cooldown: cache results per event type to prevent
+    // continuous LLM inference when multiple peers connect rapidly.
+    // The same event type reuses the cached decision for COOLDOWN_SECONDS.
+    static constexpr uint64_t LLM_COOLDOWN_SECONDS = 60;
+    struct CachedDecision {
+        std::vector<NinaAction> actions;
+        std::chrono::steady_clock::time_point timestamp;
+    };
+    std::map<NinaEventType, CachedDecision> m_decision_cache;
 };
 
 } // namespace ninacatcoin_ai

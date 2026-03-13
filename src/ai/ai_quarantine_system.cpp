@@ -243,17 +243,17 @@ void QuarantineSystem::implementWindowsFirewallRules() {
     // Block only ninacatcoin ports, NOT all traffic (avoids locking out SSH/RDP)
     std::vector<std::string> commands = {
         "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineP2P\" "
-        "dir=out action=block protocol=TCP localport=19080 enable=yes",
+        "dir=out action=block protocol=TCP localport=19020 enable=yes",
         "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineRPC\" "
-        "dir=out action=block protocol=TCP localport=19081 enable=yes",
+        "dir=out action=block protocol=TCP localport=19021 enable=yes",
         "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineZMQ\" "
-        "dir=out action=block protocol=TCP localport=19082 enable=yes",
+        "dir=out action=block protocol=TCP localport=19022 enable=yes",
         "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineP2PIn\" "
-        "dir=in action=block protocol=TCP localport=19080 enable=yes",
+        "dir=in action=block protocol=TCP localport=19020 enable=yes",
         "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineRPCIn\" "
-        "dir=in action=block protocol=TCP localport=19081 enable=yes",
+        "dir=in action=block protocol=TCP localport=19021 enable=yes",
         "netsh advfirewall firewall add rule name=\"NinacatcoinQuarantineZMQIn\" "
-        "dir=in action=block protocol=TCP localport=19082 enable=yes"
+        "dir=in action=block protocol=TCP localport=19022 enable=yes"
     };
 
     for (const auto& cmd : commands) {
@@ -268,14 +268,14 @@ void QuarantineSystem::implementLinuxIPTables() {
     // Block only ninacatcoin P2P/RPC/ZMQ ports — NEVER block all traffic
     // This preserves SSH access and other services on the machine
     std::vector<std::string> commands = {
-        "iptables -I INPUT 1 -p tcp --dport 19080 -j DROP -m comment --comment ninacatcoin_quarantine",
-        "iptables -I INPUT 1 -p tcp --dport 19081 -j DROP -m comment --comment ninacatcoin_quarantine",
-        "iptables -I INPUT 1 -p tcp --dport 19082 -j DROP -m comment --comment ninacatcoin_quarantine",
-        "iptables -I OUTPUT 1 -p tcp --dport 19080 -j DROP -m comment --comment ninacatcoin_quarantine",
-        "iptables -I OUTPUT 1 -p tcp --dport 19081 -j DROP -m comment --comment ninacatcoin_quarantine",
-        "iptables -I OUTPUT 1 -p tcp --dport 19082 -j DROP -m comment --comment ninacatcoin_quarantine",
-        "ip6tables -I INPUT 1 -p tcp --dport 19080 -j DROP -m comment --comment ninacatcoin_quarantine",
-        "ip6tables -I OUTPUT 1 -p tcp --dport 19080 -j DROP -m comment --comment ninacatcoin_quarantine"
+        "iptables -I INPUT 1 -p tcp --dport 19020 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I INPUT 1 -p tcp --dport 19021 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I INPUT 1 -p tcp --dport 19022 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I OUTPUT 1 -p tcp --dport 19020 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I OUTPUT 1 -p tcp --dport 19021 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "iptables -I OUTPUT 1 -p tcp --dport 19022 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "ip6tables -I INPUT 1 -p tcp --dport 19020 -j DROP -m comment --comment ninacatcoin_quarantine",
+        "ip6tables -I OUTPUT 1 -p tcp --dport 19020 -j DROP -m comment --comment ninacatcoin_quarantine"
     };
 
     for (const auto& cmd : commands) {

@@ -42,6 +42,7 @@
 #include "serialization/json_archive.h"
 #include "serialization/debug_archive.h"
 #include "serialization/crypto.h"
+#include "serialization/string.h"
 #include "serialization/keyvalue_serialization.h" // eepe named serialization
 #include "cryptonote_config.h"
 #include "crypto/crypto.h"
@@ -512,6 +513,7 @@ namespace cryptonote
       hash_valid(b.is_hash_valid()),
       miner_tx(b.miner_tx),
       tx_hashes(b.tx_hashes),
+      nina_data(b.nina_data),
       hash(b.hash)
     {}
     block(block &&b):
@@ -519,10 +521,12 @@ namespace cryptonote
       hash_valid(b.is_hash_valid()),
       miner_tx(std::move(b.miner_tx)),
       tx_hashes(std::move(b.tx_hashes)),
+      nina_data(std::move(b.nina_data)),
       hash(std::move(b.hash))
     {
       b.miner_tx.set_null();
       b.tx_hashes.clear();
+      b.nina_data.clear();
     }
     block &operator=(const block &b)
     {
@@ -532,6 +536,7 @@ namespace cryptonote
         hash_valid = b.is_hash_valid();
         miner_tx = b.miner_tx;
         tx_hashes = b.tx_hashes;
+        nina_data = b.nina_data;
         hash = b.hash;
       }
       return *this;
@@ -544,9 +549,11 @@ namespace cryptonote
         hash_valid = b.is_hash_valid();
         miner_tx = std::move(b.miner_tx);
         tx_hashes = std::move(b.tx_hashes);
+        nina_data = std::move(b.nina_data);
         hash = std::move(b.hash);
         b.miner_tx.set_null();
         b.tx_hashes.clear();
+        b.nina_data.clear();
       }
       return *this;
     }
@@ -557,6 +564,11 @@ namespace cryptonote
 
     transaction miner_tx;
     std::vector<crypto::hash> tx_hashes;
+
+    // NINA AI memory snapshot — travels with the block so every node
+    // that syncs the blockchain inherits immutable NINA intelligence.
+    // Format: "NINA_BLOCK_V1|height|health|anomalies|ring_decision|..."
+    std::string nina_data;
 
     // hash cash
     mutable crypto::hash hash;
@@ -570,6 +582,7 @@ namespace cryptonote
       FIELD(tx_hashes)
       if (tx_hashes.size() > CRYPTONOTE_MAX_TX_PER_BLOCK)
         return false;
+      FIELD(nina_data)
     END_SERIALIZE()
   };
 

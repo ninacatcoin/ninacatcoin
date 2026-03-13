@@ -491,7 +491,7 @@ private:
 
   // NINA on-chain tables (v18 hard fork — DB version 6)
   // These live in the SAME data.mdb as blocks/txs — no separate database.
-  // v18 active from height 1 — NINA writes directly here from genesis.
+  // v18 active from height 0 (genesis) — NINA writes directly here.
   MDB_dbi m_nina_state;       // key="current" → serialized NINA statistics + meta
   MDB_dbi m_nina_blocks;      // key=height(8B BE) → serialized PersistedBlockRecord
   MDB_dbi m_nina_checkpoints; // key=height(8B BE) → checkpoint hash + metadata
