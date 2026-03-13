@@ -20,6 +20,7 @@
 #include <deque>
 #include <sstream>
 #include <iomanip>
+#include <mutex>
 
 #undef ninacatcoin_DEFAULT_LOG_CATEGORY
 #define ninacatcoin_DEFAULT_LOG_CATEGORY "nina_sybil"
@@ -88,6 +89,7 @@ public:
         uint32_t announcement_time_ms,
         double peer_latency
     ) {
+        std::lock_guard<std::mutex> lock(m_mutex);
         auto& metrics = peer_metrics_[peer_id];
         metrics.peer_id = peer_id;
         
@@ -122,6 +124,7 @@ public:
         const std::string& peer_id,
         uint32_t announcement_time_ms
     ) {
+        std::lock_guard<std::mutex> lock(m_mutex);
         auto& metrics = peer_metrics_[peer_id];
         metrics.peer_id = peer_id;
         
@@ -139,6 +142,7 @@ public:
      * Returns how likely this peer is part of a Sybil attack
      */
     SybilScore calculate_peer_sybil_score(const std::string& peer_id) {
+        std::lock_guard<std::mutex> lock(m_mutex);
         SybilScore score;
         score.peer_id = peer_id;
         score.correlation_confidence = 0.0;
@@ -210,6 +214,7 @@ public:
      * Returns groupings of peers with high behavioral similarity
      */
     ClusterResult detect_sybil_clusters() {
+        std::lock_guard<std::mutex> lock(m_mutex);
         ClusterResult result;
         result.cluster_analysis = "";
         
@@ -312,6 +317,7 @@ public:
      * @brief Get all Sybil scores for current peer set
      */
     std::vector<SybilScore> get_all_sybil_scores() {
+        std::lock_guard<std::mutex> lock(m_mutex);
         std::vector<SybilScore> scores;
         
         for (const auto& [peer_id, _] : peer_metrics_) {
@@ -330,14 +336,23 @@ public:
     /**
      * @brief Get status summary
      */
-    std::string get_sybil_status() const {
+    std::string get_sybil_status() {
+        std::lock_guard<std::mutex> lock(m_mutex);
         // Count dangerous/suspicious peers
         int dangerous = 0, suspicious = 0;
         
         for (const auto& [_, metrics] : peer_metrics_) {
-            auto score = const_cast<SybilDetectorModule*>(this)->calculate_peer_sybil_score(metrics.peer_id);
-            if (score.threat_level == "dangerous") dangerous++;
-            else if (score.threat_level == "suspicious") suspicious++;
+            // Inline score calculation to avoid recursive lock
+            size_t correlated = 0;
+            if (metrics.observations >= 5) {
+                for (const auto& [other_id, other_metrics] : peer_metrics_) {
+                    if (other_id == metrics.peer_id || other_metrics.observations < 5) continue;
+                    double corr = calculate_behavioral_correlation(metrics, other_metrics);
+                    if (corr > 0.7) correlated++;
+                }
+            }
+            if (correlated >= 2) dangerous++;
+            else if (correlated == 1) suspicious++;
         }
         
         std::string status = "[SYBIL] Monitoring " + std::to_string(peer_metrics_.size()) + 
@@ -350,6 +365,7 @@ public:
      * @brief Clean up old peer data (inactive for >24h)
      */
     void cleanup_inactive_peers() {
+        std::lock_guard<std::mutex> lock(m_mutex);
         time_t now = std::time(nullptr);
         const time_t INACTIVE_THRESHOLD = 86400;  // 24 hours
         
@@ -368,12 +384,14 @@ public:
      * @brief Get number of monitored peers
      */
     size_t get_peer_count() const {
+        std::lock_guard<std::mutex> lock(m_mutex);
         return peer_metrics_.size();
     }
 
 private:
     std::map<std::string, PeerMetrics> peer_metrics_;
     const size_t max_history_size_;
+    mutable std::mutex m_mutex;
     
     /**
      * @brief Calculate how similar two peers' behavior is (0-1 scale)
@@ -396,7 +414,7 @@ private:
             
             // If latencies are very similar, high correlation
             double latency_diff = std::abs(avg_a - avg_b);
-            double latency_correlation = std::max(0.0, 1.0 - (latency_diff / 300.0));
+            double latency_correlation = std::max(0.0, 1.0 - (latency_diff / 1000.0));
             correlation += latency_correlation * 0.35;
             measurements++;
         }
@@ -415,7 +433,7 @@ private:
             
             double avg_variance = variance_sum / std::min((size_t)10, min_size);
             // If announcement times are very similar (within 50ms), likely Sybil
-            double timing_correlation = std::max(0.0, 1.0 - (avg_variance / 200.0));
+            double timing_correlation = std::max(0.0, 1.0 - (avg_variance / 500.0));
             correlation += timing_correlation * 0.40;
             measurements++;
         }

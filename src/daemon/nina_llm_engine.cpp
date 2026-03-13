@@ -382,6 +382,12 @@ std::string NinaLLMEngine::run_inference_deterministic(const std::string& prompt
     llama_sampler* greedy_sampler = llama_sampler_chain_init(greedy_params);
     llama_sampler_chain_add(greedy_sampler, llama_sampler_init_greedy());
 
+    // RAII guard: ensure sampler is freed even on exception
+    struct SamplerGuard {
+        llama_sampler* s;
+        ~SamplerGuard() { if (s) llama_sampler_free(s); }
+    } sampler_guard{greedy_sampler};
+
     // Generate tokens deterministically
     std::string result;
     const llama_token eos = llama_vocab_eos(vocab);
@@ -402,7 +408,8 @@ std::string NinaLLMEngine::run_inference_deterministic(const std::string& prompt
         n_generated++;
     }
 
-    // Clean up greedy sampler
+    // Clean up greedy sampler (handled by SamplerGuard RAII)
+    sampler_guard.s = nullptr; // prevent double-free
     llama_sampler_free(greedy_sampler);
 
     m_stats.total_tokens_generated += n_generated;
@@ -628,7 +635,10 @@ AnalysisResult NinaLLMEngine::parse_analysis_output(const std::string& raw_outpu
         default:
             threat_str = "0.0";
     }
-    result.threat_level = std::clamp(parse_double(threat_str), 0.0, 1.0);
+    // Truncate to integer percentage to ensure deterministic consensus
+    // (avoids cross-platform floating-point divergence in std::stod)
+    double raw_threat = parse_double(threat_str);
+    result.threat_level = std::clamp(std::floor(raw_threat * 100.0) / 100.0, 0.0, 1.0);
 
     // Extract analysis text
     std::string analysis = extract_field("ANALYSIS");

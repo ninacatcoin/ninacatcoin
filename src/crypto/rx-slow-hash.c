@@ -235,7 +235,10 @@ static void rx_alloc_cache(randomx_flags flags, randomx_cache** cache)
   if (!*cache) {
     alloc_err_msg("Couldn't allocate RandomX cache using large pages");
     *cache = randomx_alloc_cache(flags & ~disabled_flags());
-    if (!*cache) local_abort("Couldn't allocate RandomX cache");
+    if (!*cache) {
+      merror(RX_LOGCAT, "Couldn't allocate RandomX cache (no large pages, no regular pages)");
+      return;
+    }
   }
 }
 
@@ -284,7 +287,10 @@ static void rx_init_light_vm(randomx_flags flags, randomx_vm** vm, randomx_cache
         alloc_err_msg("Couldn't allocate RandomX light VM using large pages (will print only once)");
     }
     *vm = randomx_create_vm(flags & ~disabled_flags(), cache, NULL);
-    if (!*vm) local_abort("Couldn't allocate RandomX light VM");
+    if (!*vm) {
+      merror(RX_LOGCAT, "Couldn't allocate RandomX light VM (no large pages, no regular pages)");
+      return;
+    }
   }
 }
 

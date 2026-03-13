@@ -137,16 +137,13 @@ public:
         // ── Sync detection: skip LLM when processing historical blocks ─
         // Normal operation: 1 block per ~120 seconds.
         // During sync: many blocks per second.
-        // If a new block is processed within 30 seconds of the previous,
-        // we are catching up (syncing) and should skip LLM inference.
-        auto now = std::chrono::steady_clock::now();
+        // Sync detection: skip LLM when processing historical blocks.
+        // Deterministic: if multiple blocks arrive in a burst (height gap > 1),
+        // we are syncing. This is consensus-safe (no time dependency).
         bool is_syncing_fast = false;
-        if (m_last_eval_height > 0 && height > m_last_eval_height) {
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                now - m_last_eval_time).count();
-            is_syncing_fast = (elapsed < 30);
+        if (m_last_eval_height > 0 && height > m_last_eval_height + 1) {
+            is_syncing_fast = true;
         }
-        m_last_eval_time = now;
         m_last_eval_height = height;
 
         // ── Pre-v18: delegate to legacy thresholds ──

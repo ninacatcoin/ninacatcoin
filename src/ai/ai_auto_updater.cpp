@@ -497,6 +497,13 @@ bool AutoUpdater::buildProject(const std::string& source_dir, const std::string&
         }
         pclose(nproc);
     }
+    // Sanitize build_dir: reject paths with shell metacharacters
+    for (char c : build_dir) {
+        if (c == '`' || c == '$' || c == '(' || c == ')' || c == ';' || c == '|' || c == '&') {
+            setStatus("Build directory contains dangerous characters: " + build_dir);
+            return false;
+        }
+    }
     setStatus("Compiling daemon with make -j" + std::to_string(jobs) + " ...");
     std::string make_cmd = "cd \"" + build_dir + "\" && make -j" + std::to_string(jobs) + " daemon 2>&1";
 #else
@@ -525,6 +532,10 @@ std::string AutoUpdater::calculateSourceHash(const std::string& source_dir) {
         "ai_checkpoint_validator.cpp",
         "ai_checkpoint_validator.hpp",
         "ai_config.hpp",
+        "ai_auto_updater.cpp",
+        "ai_auto_updater.hpp",
+        "ai_version_checker.cpp",
+        "ai_version_checker.hpp",
         "ai_forced_remediation.cpp",
         "ai_forced_remediation.hpp",
         "ai_integrity_verifier.cpp",
@@ -598,10 +609,8 @@ bool AutoUpdater::installNewBinary(const std::string& new_binary, const std::str
         //   3. rm running_binary.old (clean up, will complete after process exits)
         std::string old_path = target_path + ".old";
 
-        // Remove any previous .old file
-        if (fs::exists(old_path)) {
-            try { fs::remove(old_path); } catch (...) {}
-        }
+        // Atomically rename running binary (no TOCTOU: skip exists check)
+        try { fs::remove(old_path); } catch (...) {}
 
         // Step 1: Rename the running binary (this works even while running!)
         setStatus("Moving running binary aside: " + target_path + " → .old");
@@ -676,13 +685,14 @@ void AutoUpdater::signalRestart() {
     setStatus("SIGHUP didn't restart - exiting with code 42 (restart requested)");
     // Exit code 42 = "please restart me"
     // A supervisor (systemd, script) can detect this and restart
-    _exit(42);
+    // Use exit() instead of _exit() to run destructors and flush DB
+    exit(42);
 #else
     // Windows: graceful exit with restart code 42
     setStatus("Windows: exiting with restart code 42");
     setStatus("Configure your service/script to restart on exit code 42");
     std::this_thread::sleep_for(std::chrono::seconds(2));
-    _exit(42);
+    exit(42);
 #endif
 }
 

@@ -115,7 +115,20 @@ std::string VersionChecker::httpGet(const std::string& url, int timeout_secs) {
     // -s = silent, -S = show error, -L = follow redirects
     // -H = set User-Agent (required by GitHub API)
     // --max-time = timeout
-    std::string cmd = "curl -sS -L --max-time " + std::to_string(timeout_secs)
+    // Validate URL: only allow HTTPS to github.com/api.github.com
+    if (url.find("https://api.github.com/") != 0 && url.find("https://github.com/") != 0) {
+        setStatus("Blocked non-GitHub URL: " + url);
+        return "";
+    }
+    // Reject shell metacharacters in URL
+    for (char c : url) {
+        if (c == '`' || c == '$' || c == '(' || c == ')' || c == ';' || c == '|' || c == '&' || c == '\n') {
+            setStatus("Blocked URL with shell metacharacters");
+            return "";
+        }
+    }
+    std::string cmd = "curl -sS -L --max-redirs 3 --max-time " + std::to_string(timeout_secs)
+                    + " --proto =https"
                     + " -H \"User-Agent: ninacatcoin-daemon/" + m_local_version.toString() + "\""
                     + " -H \"Accept: application/vnd.github.v3+json\""
                     + " \"" + url + "\" 2>/dev/null";

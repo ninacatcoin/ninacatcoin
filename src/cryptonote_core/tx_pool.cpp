@@ -173,7 +173,12 @@ namespace cryptonote
       fee = get_tx_fee(tx);
       fee_good = kept_by_block || m_blockchain.check_fee(tx_weight, fee);
     }
-    catch(...) {}
+    catch(const std::exception& e) {
+      MERROR("Exception in get_tx_fee: " << e.what());
+    }
+    catch(...) {
+      MERROR("Unknown exception in get_tx_fee");
+    }
     if (!fee_good) // if fee calculation failed or fee in relayed tx is too low...
     {
       tvc.m_verifivation_failed = true;
@@ -358,7 +363,7 @@ namespace cryptonote
         tx.vin.size(), tx.vout.size());
     } catch (...) {}
 
-    MINFO("Transaction added to pool: txid " << id << " weight: " << tx_weight << " fee/byte: " << (fee / (double)(tx_weight ? tx_weight : 1)) << ", count: " << m_added_txs_by_id.size());
+    MINFO("Transaction added to pool: txid " << id << " weight: " << tx_weight << " fee/byte: " << (tx_weight ? (fee / tx_weight) : 0) << ", count: " << m_added_txs_by_id.size());
 
     prune(m_txpool_max_weight);
 

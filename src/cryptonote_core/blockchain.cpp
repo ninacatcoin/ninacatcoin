@@ -1070,23 +1070,32 @@ difficulty_type Blockchain::get_difficulty_for_next_block()
 
     // ratio > 1 means recent blocks are faster → hashrate went up → raise difficulty
     // ratio < 1 means recent blocks are slower → hashrate went down → lower difficulty
-    if (avg_recent > 0.0)
+    // Use integer arithmetic to avoid cross-platform floating-point divergence
+    uint64_t sum_recent_int = static_cast<uint64_t>(sum_recent);
+    uint64_t sum_older_int = static_cast<uint64_t>(sum_older);
+    if (sum_recent_int > 0)
     {
-      double ratio = avg_older / avg_recent;
-      double raw_adjust = 1.0 + (ratio - 1.0) * NINA_LOCAL_SMOOTHING;
+      // ratio_scaled = (sum_older / OLDER_WINDOW) / (sum_recent / RECENT_WINDOW) * 10000
+      // Simplified: ratio_scaled = (sum_older * RECENT_WINDOW * 10000) / (sum_recent * OLDER_WINDOW)
+      uint64_t ratio_scaled = (sum_older_int * NINA_LOCAL_RECENT_WINDOW * 10000ULL)
+                            / (sum_recent_int * NINA_LOCAL_OLDER_WINDOW);
+      // raw_adjust_scaled = 10000 + (ratio_scaled - 10000) * SMOOTHING_NUM / SMOOTHING_DEN
+      // NINA_LOCAL_SMOOTHING = 0.3 = 3/10
+      int64_t deviation = static_cast<int64_t>(ratio_scaled) - 10000;
+      int64_t raw_adjust_scaled = 10000 + (deviation * 3) / 10;
 
-      // Clamp to ±NINA_LOCAL_MAX_ADJUST (default ±5%)
-      double nina_clamped = std::max(1.0 - NINA_LOCAL_MAX_ADJUST,
-                                     std::min(1.0 + NINA_LOCAL_MAX_ADJUST, raw_adjust));
+      // Clamp to ±NINA_LOCAL_MAX_ADJUST (5% = ±500 in scaled units)
+      const int64_t max_adj = 500; // 5% * 10000
+      if (raw_adjust_scaled > 10000 + max_adj) raw_adjust_scaled = 10000 + max_adj;
+      if (raw_adjust_scaled < 10000 - max_adj) raw_adjust_scaled = 10000 - max_adj;
 
-      difficulty_type nina_adjusted = static_cast<difficulty_type>(
-          static_cast<double>(diff) * nina_clamped);
+      difficulty_type nina_adjusted = (diff * raw_adjust_scaled) / 10000;
       if (nina_adjusted < 1) nina_adjusted = 1;
 
-      MINFO("NINA-LOCAL: avg_recent_" << NINA_LOCAL_RECENT_WINDOW << "=" << std::fixed
-            << std::setprecision(1) << avg_recent << "s, avg_older_" << NINA_LOCAL_OLDER_WINDOW
-            << "=" << avg_older << "s, ratio=" << std::setprecision(3) << ratio
-            << ", multiplier=" << nina_clamped << ", diff " << diff << " -> " << nina_adjusted);
+      MINFO("NINA-LOCAL: sum_recent=" << sum_recent_int << " sum_older=" << sum_older_int
+            << " ratio_scaled=" << ratio_scaled
+            << " adjust_scaled=" << raw_adjust_scaled
+            << " diff " << diff << " -> " << nina_adjusted);
 
       diff = nina_adjusted;
     }
@@ -2151,37 +2160,15 @@ bool Blockchain::handle_alternative_block(const block& b, const crypto::hash& id
     bool is_a_checkpoint;
     if(!m_checkpoints.check_block(bei.height, id, is_a_checkpoint))
     {
-      LOG_ERROR("CHECKPOINT VALIDATION FAILED");
-      // Try to auto-repair checkpoint conflict
-      if (is_a_checkpoint)
-      {
-        MERROR("Checkpoint mismatch detected - attempting auto-repair...");
-        // Use generic path - the auto_repair function will find it
-        std::string checkpoint_path = ".ninacatcoin/checkpoints.json";
-        bool repaired = m_checkpoints.auto_repair_checkpoint_conflict(bei.height, id, checkpoint_path);
-        if (repaired)
-        {
-          LOG_ERROR("Auto-repair successful, retrying checkpoint validation...");
-          if (!m_checkpoints.check_block(bei.height, id, is_a_checkpoint))
-          {
-            MERROR("Checkpoint still fails after repair, rejecting block");
-            bvc.m_verifivation_failed = true;
-            return false;
-          }
-          LOG_ERROR("Checkpoint validation passed after repair!");
-        }
-        else
-        {
-          MERROR("Auto-repair failed, rejecting block");
-          bvc.m_verifivation_failed = true;
-          return false;
-        }
-      }
-      else
-      {
-        bvc.m_verifivation_failed = true;
-        return false;
-      }
+      LOG_ERROR("CHECKPOINT VALIDATION FAILED for height " << bei.height << " block " << id);
+      // Do NOT auto-repair from untrusted alternative blocks.
+      // Auto-repair was accepting block hashes from peers without
+      // cryptographic verification, allowing an attacker to rewrite
+      // our checkpoints by broadcasting alternative blocks.
+      // Instead, reject the block and let the P2P checkpoint sync
+      // handle repair through its multi-peer consensus mechanism.
+      bvc.m_verifivation_failed = true;
+      return false;
     }
 
     // Check the block's hash against the difficulty target for its alt chain
@@ -3667,8 +3654,13 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
       bool mixin_ok = (min_actual_mixin == min_mixin);
 
       // NINA Adaptive Ring grace period: accept previous ring size
+      // WARNING: Grace period txs are distinguishable — log for monitoring
       if (!mixin_ok && nina_grace && min_actual_mixin == nina_prev_mixin)
+      {
         mixin_ok = true;
+        MWARNING("NINA-RING: Tx " << get_transaction_hash(tx) << " uses grace-period ring size "
+                 << (min_actual_mixin + 1) << " (new minimum is " << (min_mixin + 1) << ")");
+      }
 
       // HF-based grace: at HF_VERSION_MIN_MIXIN_15, accept mixin 10
       if (!mixin_ok && hf_version == HF_VERSION_MIN_MIXIN_15 && min_actual_mixin == 10)
@@ -3881,9 +3873,17 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
     case rct::RCTTypeCLSAG:
     case rct::RCTTypeBulletproofPlus:
     {
-      if (!ver_rct_non_semantics_simple_cached(tx, pubkeys, m_rct_ver_cache, RCT_CACHE_TYPE))
+      try
       {
-        MERROR_VER("Failed to check ringct signatures!");
+        if (!ver_rct_non_semantics_simple_cached(tx, pubkeys, m_rct_ver_cache, RCT_CACHE_TYPE))
+        {
+          MERROR_VER("Failed to check ringct signatures!");
+          return false;
+        }
+      }
+      catch (const std::exception &e)
+      {
+        MERROR_VER("Exception in ringct verification: " << e.what());
         return false;
       }
       break;
@@ -3946,9 +3946,17 @@ bool Blockchain::check_tx_inputs(transaction& tx, tx_verification_context &tvc, 
         }
       }
 
-      if (!rct::verRct(rv, false))
+      try
       {
-        MERROR_VER("Failed to check ringct signatures!");
+        if (!rct::verRct(rv, false))
+        {
+          MERROR_VER("Failed to check ringct signatures!");
+          return false;
+        }
+      }
+      catch (const std::exception &e)
+      {
+        MERROR_VER("Exception in RCTTypeFull verification: " << e.what());
         return false;
       }
       break;

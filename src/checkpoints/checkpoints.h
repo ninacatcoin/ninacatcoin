@@ -58,7 +58,7 @@
 #define NINA_CHECKPOINT_CYCLE_SECONDS     3600       // 1 hour between cycles
 #define NINA_CHECKPOINT_BLOCKS_PER_CYCLE  30         // ~30 blocks per hour (120s target)
 #define NINA_DAT_GROUP_SIZE               512        // blocks per .dat group
-#define NINA_P2P_MIN_PEERS_CONSENSUS      2          // minimum peers for hash consensus
+#define NINA_P2P_MIN_PEERS_CONSENSUS      5          // minimum peers for hash consensus (Sybil-resistant)
 #define NINA_P2P_CHECKPOINT_MAX_HOPS      2          // full data only to direct peers
 
 
