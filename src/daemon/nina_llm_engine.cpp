@@ -423,11 +423,33 @@ std::string NinaLLMEngine::run_inference_deterministic(const std::string& prompt
 
 AnalysisResult NinaLLMEngine::analyze(const AnalysisRequest& request)
 {
-    std::lock_guard<std::mutex> lock(m_mutex);
+    // ═══ FIX: try_lock — if LLM is busy, return fallback instantly ═══
+    // This prevents RPC/P2P threads from blocking behind long inferences.
+    // Only ONE inference runs at a time; all others get immediate fallback.
+    std::unique_lock<std::mutex> lock(m_mutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+        MDEBUG("[NINA-LLM] Inference busy, returning fallback (try_lock)");
+        m_stats.skipped_busy++;
+        return make_fallback_result(request);
+    }
+
     m_stats.total_analyses++;
 
     if (m_config.mode == LLMMode::DISABLED) {
         return make_fallback_result(request);
+    }
+
+    // ═══ FIX: Global cooldown — max 1 inference per 30 seconds ═══
+    // Prevents continuous inference chains that starve other threads.
+    {
+        auto now = std::chrono::steady_clock::now();
+        auto elapsed_s = std::chrono::duration_cast<std::chrono::seconds>(
+            now - m_last_inference_time).count();
+        if (m_last_inference_time.time_since_epoch().count() != 0 && elapsed_s < 30) {
+            MDEBUG("[NINA-LLM] Cooldown active (" << elapsed_s << "s/30s), returning fallback");
+            m_stats.skipped_cooldown++;
+            return make_fallback_result(request);
+        }
     }
 
     if (!ensure_model_loaded()) {

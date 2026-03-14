@@ -1,5 +1,0 @@
-# Never commit these
-.env
-*.log
-__pycache__/
-*.pyc

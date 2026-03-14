@@ -1,4 +1,4 @@
-/**
+﻿/**
  * NINA Sybil Attack Detector
  * 
  * Detects when multiple peers are acting as coordinated clones (Sybil attack)
@@ -89,7 +89,7 @@ public:
         uint32_t announcement_time_ms,
         double peer_latency
     ) {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         auto& metrics = peer_metrics_[peer_id];
         metrics.peer_id = peer_id;
         
@@ -124,7 +124,7 @@ public:
         const std::string& peer_id,
         uint32_t announcement_time_ms
     ) {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         auto& metrics = peer_metrics_[peer_id];
         metrics.peer_id = peer_id;
         
@@ -142,7 +142,7 @@ public:
      * Returns how likely this peer is part of a Sybil attack
      */
     SybilScore calculate_peer_sybil_score(const std::string& peer_id) {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         SybilScore score;
         score.peer_id = peer_id;
         score.correlation_confidence = 0.0;
@@ -214,7 +214,7 @@ public:
      * Returns groupings of peers with high behavioral similarity
      */
     ClusterResult detect_sybil_clusters() {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         ClusterResult result;
         result.cluster_analysis = "";
         
@@ -317,7 +317,7 @@ public:
      * @brief Get all Sybil scores for current peer set
      */
     std::vector<SybilScore> get_all_sybil_scores() {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         std::vector<SybilScore> scores;
         
         for (const auto& [peer_id, _] : peer_metrics_) {
@@ -337,7 +337,7 @@ public:
      * @brief Get status summary
      */
     std::string get_sybil_status() {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         // Count dangerous/suspicious peers
         int dangerous = 0, suspicious = 0;
         
@@ -365,7 +365,7 @@ public:
      * @brief Clean up old peer data (inactive for >24h)
      */
     void cleanup_inactive_peers() {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         time_t now = std::time(nullptr);
         const time_t INACTIVE_THRESHOLD = 86400;  // 24 hours
         
@@ -384,14 +384,14 @@ public:
      * @brief Get number of monitored peers
      */
     size_t get_peer_count() const {
-        std::lock_guard<std::mutex> lock(m_mutex);
+        std::lock_guard<std::recursive_mutex> lock(m_mutex);
         return peer_metrics_.size();
     }
 
 private:
     std::map<std::string, PeerMetrics> peer_metrics_;
     const size_t max_history_size_;
-    mutable std::mutex m_mutex;
+    mutable std::recursive_mutex m_mutex;
     
     /**
      * @brief Calculate how similar two peers' behavior is (0-1 scale)

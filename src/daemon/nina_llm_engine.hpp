@@ -58,12 +58,12 @@ enum class LLMMode {
 struct LLMConfig {
     LLMMode mode = LLMMode::ACTIVE;
     std::string model_path;           // Path to .gguf file
-    int n_ctx = 2048;                 // Context window (tokens)
-    int n_threads = 4;                // CPU threads for inference
-    int n_batch = 512;                // Batch size for prompt processing
+    int n_ctx = 768;                  // Context window (tokens) — 3B model, structured output only
+    int n_threads = 2;                // CPU threads for inference (VPS: leave cores for daemon)
+    int n_batch = 256;                // Batch size for prompt processing
     int n_gpu_layers = 0;             // GPU layers (0 = CPU only)
-    float temperature = 0.3f;         // Low temp = more deterministic (good for analysis)
-    int max_tokens = 256;             // Max output tokens per analysis
+    float temperature = 0.1f;         // Near-deterministic (security decisions, not creative text)
+    int max_tokens = 64;              // Structured output ACTION|CONF|REASON fits in ~30-40 tokens
     uint64_t lazy_unload_ms = 30000;  // Unload model after 30s idle in lazy mode
     bool verbose = false;
 };
@@ -339,8 +339,9 @@ public:
 
     /**
      * Request an analysis from the LLM.
-     * Thread-safe. Blocks until analysis is complete.
-     * Returns a fallback result if LLM is unavailable.
+     * Thread-safe. Non-blocking: if LLM is busy, returns fallback instantly.
+     * Also enforces a 30s global cooldown between inferences.
+     * Returns a fallback result if LLM is unavailable, busy, or in cooldown.
      */
     AnalysisResult analyze(const AnalysisRequest& request);
 
@@ -375,6 +376,8 @@ public:
         uint64_t total_inference_ms = 0;
         uint64_t model_loads = 0;
         uint64_t model_unloads = 0;
+        uint64_t skipped_busy = 0;      // try_lock: LLM was busy
+        uint64_t skipped_cooldown = 0;  // global cooldown active
     };
     Stats get_stats() const { return m_stats; }
 
