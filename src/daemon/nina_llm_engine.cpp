@@ -408,9 +408,7 @@ std::string NinaLLMEngine::run_inference_deterministic(const std::string& prompt
         n_generated++;
     }
 
-    // Clean up greedy sampler (handled by SamplerGuard RAII)
-    sampler_guard.s = nullptr; // prevent double-free
-    llama_sampler_free(greedy_sampler);
+    // greedy_sampler freed automatically by SamplerGuard RAII
 
     m_stats.total_tokens_generated += n_generated;
     MINFO("[NINA-LLM] Deterministic decision inference: " << n_generated << " tokens");
